@@ -46,6 +46,19 @@ from geometry_helpers import (
 from machining_logic import calculate_all_zones_2d, calculate_origins_recursively
 from utils import calculate_available_space_between_horizontal_shelves
 
+# `layout="wide"` : l'application occupe toute la largeur de l'écran par défaut,
+# au lieu d'obliger chaque utilisateur à cocher « Wide mode » dans le menu
+# Settings de Streamlit à chaque visite. Le réglage est utile ici parce que la
+# mise en page repose sur deux colonnes — édition à gauche, prévisualisation 3D
+# à droite — qui deviennent étroites dans la largeur réduite par défaut.
+#
+# Cet appel doit rester LE PREMIER appel Streamlit du script : Streamlit refuse
+# `set_page_config` dès qu'une autre commande a déjà produit un élément.
+st.set_page_config(
+    page_title="Studio KOBO",
+    layout="wide",
+)
+
 initialize_session_state()
 
 
