@@ -59,6 +59,8 @@ from machining_logic import (
     drawer_piece_dims,
     door_columns,
     door_zone_span,
+    column_filler_spans,
+    column_filler_width,
 )
 from utils import calculate_available_space_between_horizontal_shelves
 
@@ -192,11 +194,12 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         sheet_plans, plans_ok = generate_stacked_html_plans(scene, indices, output_format="plans")
         if not plans_ok or not isinstance(sheet_plans, list) or not sheet_plans:
             raise RuntimeError("aucune feuille d'usinage")
-        # Chaque pièce a sa feuille : joues et plinthes (sans perçage) en plus,
+        # Chaque pièce a sa feuille : joues, plinthes et fileurs de colonne
+        # (sans perçage) en plus,
         # reprises de la feuille de débit, après les feuilles de leur caisson.
         for part in all_parts or []:
             ref = str(part.get("Référence Pièce", ""))
-            if not any(k in ref.lower() for k in ("joue", "plinthe")):
+            if not any(k in ref.lower() for k in ("joue", "plinthe", "fileur colonne")):
                 continue
             caissons = str(part.get("Caisson", ""))
             first_c = caissons.split(",")[0].strip()
@@ -1275,6 +1278,21 @@ def calculate_all_project_parts():
             usinage_porte = "CF plan" if has_holes_for_piece("Porte", cabinet) else ""
             all_parts.append({"Lettre": f"C{i}-P", "Référence Pièce": porte_ref, "Matière": dp.get('material', 'Matière Porte'), "Caisson": f"C{i}", "Qté": 1 if dp.get('door_type')=='single' else 2, "Longueur (mm)": dH, "Largeur (mm)": dW, "Epaisseur": dp.get('door_thickness', 19.0), "Chant Avant": cav, "Chant Arrière": car, "Chant Gauche": cg, "Chant Droit": cd, "Usinage": usinage_porte})
 
+            # Fileurs de colonne : planches fixes en façade, sans usinage.
+            for _fk, _fspan in enumerate(column_filler_spans(cabinet), start=1):
+                all_parts.append({
+                    "Lettre": f"C{i}-FC{_fk}",
+                    "Référence Pièce": f"Fileur colonne {_fk} (C{i})",
+                    "Matière": dp.get('material', 'Matière Porte'),
+                    "Caisson": f"C{i}",
+                    "Qté": 1,
+                    "Longueur (mm)": dH,
+                    "Largeur (mm)": column_filler_width(cabinet, _fspan),
+                    "Epaisseur": dp.get('door_thickness', 19.0),
+                    "Chant Avant": cav, "Chant Arrière": car, "Chant Gauche": cg, "Chant Droit": cd,
+                    "Usinage": "",
+                })
+
         # 3. Tiroirs (tous les tiroirs de la liste) - dimensions adaptées à la zone
         if 'drawers' in cabinet and cabinet['drawers']:
             legrabox_specs = get_legrabox_specs()
@@ -2077,6 +2095,26 @@ with col1:
                                 on_change=update_door_column,
                                 args=(idx,),
                             )
+                            # Fileurs de colonne : planches fixes sans usinage sur les
+                            # colonnes sans porte ; le caisson garde ses dimensions.
+                            if _cur is not None:
+                                _free_cols = [c for c in range(len(_door_cols)) if c != _cur]
+                                _wanted = d_p.get('column_fillers') or []
+                                _sel = [c for c in _free_cols
+                                        if any(abs(_door_cols[c]['x_min'] - float(w['x_min'])) <= 1.0
+                                               and abs(_door_cols[c]['x_max'] - float(w['x_max'])) <= 1.0
+                                               for w in _wanted)]
+                                st.multiselect(
+                                    "Fileur sur les autres colonnes (planche fixe, sans usinage)",
+                                    options=_free_cols,
+                                    default=_sel,
+                                    format_func=lambda c, cols=_door_cols: (
+                                        f"Colonne {c + 1} ({cols[c]['x_max'] - cols[c]['x_min']:.0f} mm)"
+                                    ),
+                                    key=f"column_fillers_{idx}",
+                                    on_change=update_column_fillers,
+                                    args=(idx,),
+                                )
                         st.selectbox("Type de porte", options=['single', 'double'], index=0 if d_p.get('door_type')=='single' else 1, format_func=lambda x: 'Simple' if x=='single' else 'Double', key=f"door_type_{idx}", on_change=lambda: update_selected_cabinet_door('door_type'))
                         if d_p.get('door_type')=='single': st.selectbox("Sens d'ouverture", options=['right', 'left'], index=0 if d_p.get('door_opening')=='right' else 1, format_func=lambda x: 'Droite' if x=='right' else 'Gauche', key=f"door_opening_{idx}", on_change=lambda: update_selected_cabinet_door('door_opening'))
                         st.number_input("Épaisseur (mm)", value=d_p.get('door_thickness', 19.0), key=f"door_thickness_{idx}", on_change=lambda: update_selected_cabinet_door('door_thickness'), format="%.0f", step=1.0)
@@ -3900,6 +3938,14 @@ with col2:
                     dl_half = (L_d-2*gap)/2; pivot_g = ox_d + gap; pivot_d = ox_d + L_d - gap
                     fig3d.add_trace(cuboid_mesh_for(dl_half, thk, dH, (ox_d+gap, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte G {i}", rotation_angle=-45, rotation_axis='z', rotation_pivot=(pivot_g, dy, dz)))
                     fig3d.add_trace(cuboid_mesh_for(dl_half, thk, dH, (ox_d+L_d-gap-dl_half, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte D {i}", rotation_angle=45, rotation_axis='z', rotation_pivot=(pivot_d, dy, dz)))
+
+                # Fileurs de colonne : planches fixes en façade (fermées).
+                for _fk, _fspan in enumerate(column_filler_spans(cab_render), start=1):
+                    _fw = column_filler_width(cab_render, _fspan) * unit_factor
+                    if _fw > 0:
+                        fig3d.add_trace(cuboid_mesh_for(
+                            _fw, thk, dH, (o[0] + _fspan[0] * unit_factor + gap, dy, dz),
+                            color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Fileur colonne {_fk} {i}"))
 
                 # ── Fileur ─────────────────────────────────────────────
                 fileur_w_mm = float(dp.get('fileur_width', 0))

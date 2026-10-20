@@ -982,3 +982,33 @@ def door_zone_span(cabinet):
         if 0 <= zone_id < len(zones):
             return (float(zones[zone_id]['x_min']), float(zones[zone_id]['x_max']))
     return None
+
+
+def column_filler_spans(cabinet):
+    """Fileurs de colonne : planches fixes, sans usinage, posées en façade des
+    colonnes que la porte ne couvre pas (caisson à montant(s) secondaire(s)).
+
+    Ne modifient pas les dimensions du caisson. Retourne [(x_min, x_max)] des
+    colonnes habillées (faces des montants qui les bordent), dans l'ordre.
+    """
+    dp = cabinet.get('door_props', {}) or {}
+    if not dp.get('has_door') or cabinet_door_is_hidden(cabinet):
+        return []
+    door_span = door_zone_span(cabinet)
+    if door_span is None:
+        return []
+    wanted = dp.get('column_fillers') or []
+    out = []
+    for col in door_columns(cabinet):
+        x0, x1 = col['x_min'], col['x_max']
+        if abs(x0 - door_span[0]) <= 1.0 and abs(x1 - door_span[1]) <= 1.0:
+            continue  # colonne de la porte
+        if any(abs(x0 - float(w['x_min'])) <= 1.0 and abs(x1 - float(w['x_max'])) <= 1.0 for w in wanted):
+            out.append((x0, x1))
+    return out
+
+
+def column_filler_width(cabinet, span):
+    """Largeur d'un fileur de colonne : même règle que la porte (ouverture - 2 jeux)."""
+    gap = float((cabinet.get('door_props', {}) or {}).get('door_gap', 2.0) or 0.0)
+    return max(0.0, (span[1] - span[0]) - 2.0 * gap)

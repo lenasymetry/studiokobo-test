@@ -1607,6 +1607,22 @@ def update_door_column(cab_idx):
     dp['zone_id'] = None
 
 
+def update_column_fillers(cab_idx):
+    """Colonnes sans porte habillées d'un fileur (planche fixe, sans usinage)."""
+    from machining_logic import door_columns
+    scene = st.session_state.get('scene_cabinets', [])
+    if not (0 <= cab_idx < len(scene)):
+        return
+    cabinet = scene[cab_idx]
+    dp = cabinet.setdefault('door_props', get_default_door_props_19())
+    cols = door_columns(cabinet)
+    chosen = st.session_state.get(f"column_fillers_{cab_idx}") or []
+    dp['column_fillers'] = [
+        {'x_min': cols[c]['x_min'], 'x_max': cols[c]['x_max']}
+        for c in chosen if 0 <= c < len(cols)
+    ]
+
+
 def update_selected_cabinet_drawer(key):
     # Ancien système (compatibilité) - à supprimer progressivement
     cabinet = get_selected_cabinet()

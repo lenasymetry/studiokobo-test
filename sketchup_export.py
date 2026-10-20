@@ -18,7 +18,8 @@ from xml.dom import minidom
 from typing import List, Tuple, Dict
 
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
-                             get_door_vertical_geometry, door_zone_span)
+                             get_door_vertical_geometry, door_zone_span,
+                             column_filler_spans, column_filler_width)
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +542,15 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
                           half, door_th, d_H, mat="mat_door",
                           rotation_deg=ajar_angle,
                           rotation_pivot_xy=(ox_d + L_d - gap, d_y))
+
+            # Fileurs de colonne : planches fixes en façade, sans usinage.
+            for _fk, _fspan in enumerate(column_filler_spans(cabinet), start=1):
+                _fw = column_filler_width(cabinet, _fspan)
+                if _fw > 0:
+                    add_panel(cab_node,
+                              f"Fileur colonne {_fk} – {cab_label}",
+                              ox + _fspan[0] + gap, d_y, d_z,
+                              _fw, door_th, d_H, mat="mat_door")
 
         # ── Façades de tiroir ───────────────────────────────────────────
         for j, drp in enumerate(cabinet.get("drawers", [])):

@@ -27,7 +27,8 @@ from matplotlib.colors import to_rgba
 from PIL import Image, ImageDraw
 from machining_logic import (calculate_all_zones_2d, get_cabinet_door_height_raw,
                              cabinet_door_is_hidden, get_door_vertical_geometry,
-                             get_cache_pied_drop, door_zone_span)
+                             get_cache_pied_drop, door_zone_span,
+                             column_filler_spans, column_filler_width)
 from project_definitions import get_joue_dimensions
 
 # Résolution du rendu 3D matriciel (pixels par pouce de la zone de vue).
@@ -875,6 +876,12 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
                 rotation_pivot=(pivot_d, dy, dz),
             )
 
+        # Fileurs de colonne : planches fixes en façade (fermées).
+        for _fspan in column_filler_spans(cab):
+            _fw = column_filler_width(cab, _fspan)
+            if _fw > 0.0:
+                _add_box(boxes, rox + _fspan[0] + gap, dy, dz, _fw, dth_d, dH, alpha=0.50, skip=bf_skip)
+
         # Fileur en facade
         if fileur_w > 0.0:
             fil_w = fileur_w
@@ -1138,6 +1145,12 @@ def _description_lines(cab: Dict, label: str) -> List[str]:
             leaf_w = avail_w / 2.0
             lines.append(f"  2 vantaux : {int(round(leaf_w))}×{int(round(dH))}×{int(round(dth_d))} mm")
         lines.append("")
+        _fillers = column_filler_spans(cab)
+        if _fillers:
+            lines.append("FILEUR(S) DE COLONNE (sans usinage)")
+            for _fk, _fspan in enumerate(_fillers, 1):
+                lines.append(f"  N°{_fk} : {int(round(column_filler_width(cab, _fspan)))}×{int(round(dH))}×{int(round(dth_d))} mm")
+            lines.append("")
 
     # Tiroirs : cotes réelles de chaque façade (largeur = largeur du caisson,
     # ou de la zone, - 4 mm — même règle que la feuille de débit).
