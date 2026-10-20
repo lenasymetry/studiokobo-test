@@ -1,10 +1,11 @@
 import streamlit as st
+import copy
 import datetime
 from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1021,8 +1022,8 @@ def _divider_plan_height_and_holes(div, h_side, t_tb, holes):
     décalés depuis son pied.
     """
     interior_h = float(h_side) - 2.0 * float(t_tb)
-    if not _divider_is_partial(div, interior_h):
-        return h_side, holes
+    # Montant secondaire entre traverses : longueur = hauteur intérieure
+    # (comme la feuille de débit), trous ramenés depuis son pied.
     bottom, top = _divider_vertical_span(div, interior_h)
     div_h = top - bottom
     y0 = float(t_tb) + bottom
@@ -1302,13 +1303,23 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             t_fb = float(dims['t_fb_raw'])
             t_tb = float(dims['t_tb_raw'])
             
+            # Dimensions = celles de la feuille de débit (fond encastré) :
+            # traverses, étagères et montants secondaires font profondeur - 19,
+            # le fond fait (L - 38) x (H - 38), le fileur réduit la largeur utile.
+            body = carcass_piece_dims(cab)
             h_side = H_raw
-            L_trav = L_raw - 2 * t_lr
+            L_trav = body['L_traverse']
             W_mont = W_raw
-            W_back = L_raw - 2.0
-            H_back = H_raw - 2.0
-            
-            ys_vis, ys_dowel = calculate_hole_positions(W_raw)
+            W_inner = body['W_inner']
+            W_back = body['fond_W']
+            H_back = body['fond_H']
+
+            # Trame vis/tourillons sur la profondeur des pièces intérieures,
+            # mesurée depuis l'AVANT. Montant gauche : avant en x = 0 ;
+            # montant droit : avant en x = W_mont (repère de sa feuille).
+            ys_vis, ys_dowel = calculate_hole_positions(W_inner)
+            def _x_md(x):
+                return W_mont - x
             holes_mg, holes_md = [], []
             tranche_holes_mg, tranche_holes_md = [], []
             
@@ -1318,13 +1329,13 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             for x in ys_vis:
                 holes_mg.append({'type':'vis','x':x,'y':t_tb/2,'diam_str':"⌀3"})
                 holes_mg.append({'type':'vis','x':x,'y':h_side-t_tb/2,'diam_str':"⌀3"})
-                holes_md.append({'type':'vis','x':x,'y':t_tb/2,'diam_str':"⌀3"})
-                holes_md.append({'type':'vis','x':x,'y':h_side-t_tb/2,'diam_str':"⌀3"})
+                holes_md.append({'type':'vis','x':_x_md(x),'y':t_tb/2,'diam_str':"⌀3"})
+                holes_md.append({'type':'vis','x':_x_md(x),'y':h_side-t_tb/2,'diam_str':"⌀3"})
             for x in ys_dowel:
                 holes_mg.append({'type':'tourillon','x':x,'y':t_tb/2,'diam_str':"⌀8/22"})
                 holes_mg.append({'type':'tourillon','x':x,'y':h_side-t_tb/2,'diam_str':"⌀8/22"})
-                holes_md.append({'type':'tourillon','x':x,'y':t_tb/2,'diam_str':"⌀8/22"})
-                holes_md.append({'type':'tourillon','x':x,'y':h_side-t_tb/2,'diam_str':"⌀8/22"})
+                holes_md.append({'type':'tourillon','x':_x_md(x),'y':t_tb/2,'diam_str':"⌀8/22"})
+                holes_md.append({'type':'tourillon','x':_x_md(x),'y':h_side-t_tb/2,'diam_str':"⌀8/22"})
             
             # Même règle que dans 2.py : pour que les trous d'étagères fixes
             # soient parfaitement alignés avec les trous d'assemblage
@@ -1356,7 +1367,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     zone_id = s.get('zone_id', None)
                     
                     if s_type == 'fixe':
-                        L_shelf = float(L_raw - (2 * t_lr))
+                        L_shelf = float(L_trav)
                         yc_val = t_tb + s['height'] + s_th/2.0 
                         
                         # Utiliser les LIMITES DE LA ZONE pour détecter les montants (MÊME LOGIQUE QUE 2.PY)
@@ -1378,8 +1389,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                                 for x in ys_dowel_sf: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
                             # Montant droit principal si la zone se termine au montant droit
                             if abs(zone_x_max - (L_raw - t_lr)) < 1.0:
-                                for x in ys_vis_sf: holes_md.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
-                                for x in ys_dowel_sf: holes_md.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
+                                for x in ys_vis_sf: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'diam_str':"⌀3"})
+                                for x in ys_dowel_sf: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'diam_str':"⌀8/10"})
                             
                             # Montants secondaires qui touchent cette étagère fixe
                             for div_idx, div in enumerate(cab['vertical_dividers']):
@@ -1405,21 +1416,21 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                             # Étagère sur tout le caisson : trous sur les deux montants principaux
                             for x in ys_vis_sf: holes_mg.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
                             for x in ys_dowel_sf: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
-                            for x in ys_vis_sf: holes_md.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
-                            for x in ys_dowel_sf: holes_md.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
+                            for x in ys_vis_sf: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'diam_str':"⌀3"})
+                            for x in ys_dowel_sf: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'diam_str':"⌀8/10"})
                         
                         # Trous de liaison dans la tranche de l'étagère fixe
                         # Regle: uniquement des tourillons, avec extremites a 25 mm de chaque bord
                         # sur la profondeur reelle de l'etagere fixe (identique traverse: W_raw).
                         tr = []
-                        shelf_width = float(W_raw)
+                        shelf_width = float(W_inner)
                         _, ys_dowel_shelf = calculate_hole_positions(shelf_width)
                         for y_pos in ys_dowel_shelf:
                             tr.append({'type':'tourillon','x':s_th/2,'y':y_pos,'diam_str':"⌀8/22"})
                         fixed_shelf_tr_draw[s_idx] = tr
                     else:
                         # Étagère mobile : les taquets sont déjà calculés, on les filtre par zone
-                        L_shelf = float(L_raw - (2 * t_lr) - 2.0)
+                        L_shelf = float(L_trav)
                         mobile_holes = get_mobile_shelf_holes(h_side, t_tb, s, W_mont)
                         
                         zone_x_min = None
@@ -1465,16 +1476,14 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         # Pour les étagères mobiles, L_shelf est déjà défini à la ligne 240
                     
                     # W_shelf: étagère fixe = même largeur que traverse, mobile = largeur réduite.
-                    if s_type == 'fixe':
-                        W_shelf = float(W_raw)
-                    else:
-                        W_shelf = float(W_raw - 10.0)
+                    # Même largeur que la feuille de débit (profondeur - 19).
+                    W_shelf = float(W_inner)
                     c_shelf = {"Chant Avant":True, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":False}
                     th_shelf = fixed_shelf_tr_draw.get(s_idx, [])
                     fh_shelf = []
                     if s_type == 'fixe':
                         fh_shelf = _shelf_face_holes_for_partial_dividers(
-                            cab, s, L_raw - 2.0 * t_lr, t_lr, t_tb, W_raw, t_fb, h_side - 2.0 * t_tb)
+                            cab, s, L_trav, t_lr, t_tb, W_inner + t_fb, t_fb, h_side - 2.0 * t_tb)
                     # Créer une clé unique pour regrouper les étagères identiques
                     # Utiliser les dimensions et les trous pour identifier les étagères identiques
                     shelf_key = (round(L_shelf, 1), round(W_shelf, 1), round(s_th, 1), s_type,
@@ -1536,7 +1545,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         elif kind == 'md':
                             dest, xs = holes_md, (W_mont - 20.0, W_mont - 52.0)
                         elif kind == 'div_left':
-                            dest, xs = divider_element_holes_left[div_idx], (W_mont - 20.0, W_mont - 52.0)
+                            dest, xs = divider_element_holes_left[div_idx], (W_inner - 20.0, W_inner - 52.0)
                         else:
                             dest, xs = divider_element_holes_right[div_idx], (20.0, 52.0)
                         for x in xs:
@@ -1619,7 +1628,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             # IMPORTANT : Les montants secondaires ont une profondeur de W - t_fb.
             # Un montant partiel ne perce que la traverse qu'il touche.
             traverse_face_holes_left, traverse_face_holes_right = _divider_traverse_holes(
-                cab, L_trav, t_lr, t_tb, W_raw, t_fb, h_side - 2.0 * t_tb)
+                cab, L_trav, t_lr, t_tb, W_inner + t_fb, t_fb, h_side - 2.0 * t_tb)
             
             # Panneau arrière
             holes_fond = calculate_back_panel_holes(W_back, H_back, cab)
@@ -1644,9 +1653,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             })
             
             if base_el.get('has_bottom_traverse', True):
-                plans.append(("Traverse Bas (Tb)", L_trav, W_mont, t_tb, c_trav, traverse_face_holes_left, tholes_longue, tholes_cote, None))
+                plans.append(("Traverse Bas (Tb)", L_trav, W_inner, t_tb, c_trav, traverse_face_holes_left, tholes_longue, tholes_cote, None))
             if base_el.get('has_top_traverse', True):
-                plans.append(("Traverse Haut (Th)", L_trav, W_mont, t_tb, c_trav, traverse_face_holes_right, tholes_longue, tholes_cote, None))
+                plans.append(("Traverse Haut (Th)", L_trav, W_inner, t_tb, c_trav, traverse_face_holes_right, tholes_longue, tholes_cote, None))
             if base_el.get('has_left_upright', True):
                 plans.append(("Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mont, holes_mg, [], tranche_holes_mg, None))
             if base_el.get('has_right_upright', True):
@@ -1656,24 +1665,14 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
 
             # --- TIROIRS (GROUPÉS PAR DIMENSIONS IDENTIQUES) ---
             if 'drawers' in cab and cab['drawers']:
-                # Fonction helper pour calculer la signature d'un tiroir (dimensions + usinages)
-                def get_drawer_signature_export(drp, all_zones_2d, L_raw, W_raw, t_fb, t_lr):
-                    drawer_system = drp.get('drawer_system', 'TANDEMBOX')
-                    drawer_zone_id = drp.get('zone_id', None)
-                    gap_mm = drp.get('drawer_gap', 2.0)
-                    
-                    if drawer_zone_id is not None and drawer_zone_id < len(all_zones_2d):
-                        zone = all_zones_2d[drawer_zone_id]
-                        zone_width_total = zone['x_max'] - zone['x_min']
-                        zone_width_interior = zone_width_total - (2 * t_lr)
-                    else:
-                        zone_width_total = L_raw
-                        zone_width_interior = L_raw - (2 * t_lr)
-                    
-                    dr_H = drp.get('drawer_face_H_raw', 150.0)
-                    tech_type = drp.get('drawer_tech_type', 'K')
-                    dr_thickness = drp.get('drawer_face_thickness', 19.0)
-                    inner_thickness = float(drp.get('inner_thickness', 16.0))
+                # Dimensions = feuille de débit (drawer_piece_dims), zones calculées
+                # sur la largeur utile comme le débit.
+                cab_for_zones = copy.deepcopy(cab)
+                cab_for_zones['dims']['L_raw'] = carcass_piece_dims(cab)['L_eff']
+                drawer_zones = calculate_all_zones_2d(cab_for_zones)
+
+                def get_drawer_signature_export(drp):
+                    drw = drawer_piece_dims(cab, drp, drawer_zones)
                     cutout = None
                     if drp.get('drawer_handle_type') == 'integrated_cutout':
                         cutout = (
@@ -1681,35 +1680,18 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                             drp.get('drawer_handle_height', 40.0),
                             drp.get('drawer_handle_offset_top', 10.0)
                         )
-                    
-                    if drawer_system == 'LÉGRABOX':
-                        legrabox_specs = get_legrabox_specs()
-                        legrabox_spec = legrabox_specs.get(tech_type, legrabox_specs['K'])
-                        fixed_back_h = legrabox_spec['back_height']
-                        dr_L = zone_width_total - (2 * gap_mm)
-                        d_L_t = max(0.0, zone_width_interior - 38.0)
-                        zone_depth_interior = W_raw - (2 * t_lr)
-                        fond_L = max(0.0, zone_width_interior - 35.0)
-                        fond_H = max(0.0, zone_depth_interior - 10.0)
-                    else:
-                        dr_L = zone_width_total - (2 * gap_mm)
-                        back_height_map = {'N': 69.0, 'M': 84.0, 'K': 116.0, 'D': 199.0}
-                        fixed_back_h = back_height_map.get(tech_type, 116.0)
-                        d_L_t = max(0.0, dr_L - 49.0)
-                        fond_L = max(0.0, dr_L - 49.0)
-                        fond_H = round(W_raw - (20.0 + t_fb), 1)
-                    
-                    # Signature : (face_L, face_H, face_th, system, tech_type, cutout, dos_L, dos_H, dos_th, fond_L, fond_H, fond_th)
                     return (
-                        round(dr_L, 1), round(dr_H, 1), round(dr_thickness, 1), drawer_system, tech_type, cutout,
-                        round(d_L_t, 1), round(fixed_back_h, 1), round(inner_thickness, 1),
-                        round(fond_L, 1), round(fond_H, 1), round(inner_thickness, 1)
+                        round(drw['face_w'], 1), round(drw['face_h'], 1), round(drw['face_t'], 1),
+                        drw['system'], drw['tech'], cutout,
+                        round(drw['back_w'], 1), round(drw['back_h'], 1), round(drw['inner_t'], 1),
+                        round(drw['bottom_w'], 1), round(drw['bottom_d'], 1), round(drw['inner_t'], 1),
+                        round(drw['box_x0_on_face'], 1), round(drw['box_x1_on_face'], 1),
                     )
-                
+
                 # Grouper les tiroirs par signature
                 drawer_groups = {}
                 for drawer_idx, drp in enumerate(cab['drawers']):
-                    sig = get_drawer_signature_export(drp, all_zones_2d, L_raw, W_raw, t_fb, t_lr)
+                    sig = get_drawer_signature_export(drp)
                     if sig not in drawer_groups:
                         drawer_groups[sig] = []
                     drawer_groups[sig].append((drawer_idx, drp))
@@ -1719,7 +1701,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 legrabox_specs = get_legrabox_specs()
                 for sig, group in drawer_groups.items():
                     group_num += 1
-                    dr_L, dr_H, dr_thickness, drawer_system, tech_type, cutout, d_L_t, fixed_back_h, inner_thickness, fond_L, fond_H, _ = sig
+                    dr_L, dr_H, dr_thickness, drawer_system, tech_type, cutout, d_L_t, fixed_back_h, inner_thickness, fond_L, fond_H, _, box_x0, box_x1 = sig
                     quantity = len(group)
                     
                     # Prendre le premier tiroir du groupe pour les données de référence
@@ -1736,8 +1718,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         for y in legrabox_spec['face_holes']['y_coords']:
                             if y < dr_H:
                                 x_offset = legrabox_spec['face_holes']['x_offset']
-                                f_holes.append({'type': 'tourillon_facade', 'x': x_offset, 'y': y, 'diam_str': legrabox_spec['face_holes']['diam_str']})
-                                f_holes.append({'type': 'tourillon_facade', 'x': dr_L - x_offset, 'y': y, 'diam_str': legrabox_spec['face_holes']['diam_str']})
+                                f_holes.append({'type': 'tourillon_facade', 'x': box_x0 + x_offset, 'y': y, 'diam_str': legrabox_spec['face_holes']['diam_str']})
+                                f_holes.append({'type': 'tourillon_facade', 'x': box_x1 - x_offset, 'y': y, 'diam_str': legrabox_spec['face_holes']['diam_str']})
                         # Trous dos (vis 2.5/3)
                         for y in legrabox_spec['back_holes']['y_coords']:
                             if y < fixed_back_h:
@@ -1755,8 +1737,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         y_coords_face = {'K': [47.5, 79.5, 111.5], 'M': [47.5, 79.5], 'N': [32.5, 64.5], 'D': [47.5, 79.5, 207.5]}.get(tech_type, [47.5, 79.5, 111.5])
                         for y in y_coords_face:
                             if y < dr_H:
-                                f_holes.append({'type': 'tourillon_facade', 'x': 32.5, 'y': y, 'diam_str': "⌀10/12"})
-                                f_holes.append({'type': 'tourillon_facade', 'x': dr_L - 32.5, 'y': y, 'diam_str': "⌀10/12"})
+                                f_holes.append({'type': 'tourillon_facade', 'x': box_x0 + 32.5, 'y': y, 'diam_str': "⌀10/12"})
+                                f_holes.append({'type': 'tourillon_facade', 'x': box_x1 - 32.5, 'y': y, 'diam_str': "⌀10/12"})
                         y_coords_back = {'K': [30.0, 62.0, 94.0], 'M': [32.0, 64.0], 'N': [31.0, 47.0], 'D': [31.0, 63.0, 95.0, 159.0, 191.0]}.get(tech_type, [30.0, 62.0, 94.0])
                         for dy in y_coords_back:
                             d_holes_t.append({'type': 'vis_dos', 'x': 9.0, 'y': dy, 'diam_str': "⌀3"}) 
@@ -1807,8 +1789,20 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 hinge_pos = _door_hinge_positions(cab, dH, door_dz)
                 y_h = hinge_pos['left']
 
+                # Largeur = feuille de débit : zone de la porte si assignée,
+                # sinon largeur utile du caisson (fileur déduit).
+                L_eff_door = carcass_piece_dims(cab)['L_eff']
+                door_zone = None
+                if dp.get('zone_id') is not None:
+                    cab_for_door_zones = copy.deepcopy(cab)
+                    cab_for_door_zones['dims']['L_raw'] = L_eff_door
+                    door_zones = calculate_all_zones_2d(cab_for_door_zones)
+                    if dp['zone_id'] < len(door_zones):
+                        door_zone = door_zones[dp['zone_id']]
+                door_span_w = (door_zone['x_max'] - door_zone['x_min']) if door_zone is not None else L_eff_door
+
                 if door_type == 'double':
-                    dW_half = (L_raw - (2 * dp['door_gap'])) / 2.0
+                    dW_half = (L_eff_door - (2 * dp['door_gap'])) / 2.0 if door_zone is None else door_span_w - 2 * dp['door_gap']
 
                     if dp.get('door_model') == 'floor_length':
                         # Double + cache-pieds: two distinct mirrored variants.
@@ -1834,7 +1828,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         plan_quantities[f"Porte (C{cab_idx})"] = 2
                         plans.append((f"Porte (C{cab_idx})", dW_half, dH, dp['door_thickness'], c_p, holes_p, [], [], None))
                 else:
-                    dW = L_raw - (2 * dp['door_gap'])
+                    dW = door_span_w - (2 * dp['door_gap'])
                     hinge_side = 'left' if dp['door_opening']=='left' else 'right'
                     holes_p = _build_door_face_holes(dW, y_h, hinge_side=hinge_side)
                     c_p = {"Chant Avant":True, "Chant Arrière":True, "Chant Gauche":True, "Chant Droit":True}
@@ -1861,12 +1855,12 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             if 'vertical_dividers' in cab and cab['vertical_dividers']:
                 for div_idx, div in enumerate(cab['vertical_dividers']):
                     div_th = div.get('thickness', 19.0)
-                    div_w = W_mont
+                    div_w = W_inner
                     div_h, div_holes_left = _divider_plan_height_and_holes(div, h_side, t_tb, divider_element_holes_left[div_idx])
                     _, div_holes_right = _divider_plan_height_and_holes(div, h_side, t_tb, divider_element_holes_right[div_idx])
                     
                     # Trous sur les tranches haut et bas
-                    div_tranche_holes = get_vertical_divider_tranche_holes(W_mont, div_th)
+                    div_tranche_holes = get_vertical_divider_tranche_holes(W_inner, div_th)
                     
                     c_div_12 = {"Chant Avant":False, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":True}
                     c_div_22 = {"Chant Avant":False, "Chant Arrière":False, "Chant Gauche":True, "Chant Droit":False}
@@ -2201,7 +2195,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         W_back = L_raw - 2.0
         H_back = H_raw - 2.0
         
-        ys_vis, ys_dowel = calculate_hole_positions(W_raw)
+        ys_vis, ys_dowel = calculate_hole_positions(carcass_piece_dims(cab)["W_inner"])  # même trame que les feuilles d'usinage
         holes_mg, holes_md = [], []
         tranche_holes_mg, tranche_holes_md = [], []
         

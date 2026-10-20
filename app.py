@@ -55,6 +55,8 @@ from machining_logic import (
     cabinet_rests_on_floor,
     get_plinthe_for_cabinet,
     format_plinthe_labels,
+    carcass_piece_dims,
+    drawer_piece_dims,
 )
 from utils import calculate_available_space_between_horizontal_shelves
 
@@ -1041,13 +1043,16 @@ def calculate_all_project_parts():
         
         t_lr, t_tb, t_fb = dims['t_lr_raw'], dims['t_tb_raw'], dims['t_fb_raw']
         h_side = dims['H_raw'] 
-        L_traverse = max(0.0, L_eff - 2 * t_lr)
-        dim_fond_vertical = dims['H_raw'] - 38.0
-        dim_fond_horizontal = max(0.0, L_eff - 38.0)
+        # Source unique partagée avec les feuilles d'usinage (fond encastré).
+        body_dims = carcass_piece_dims(cabinet)
+        L_traverse = body_dims['L_traverse']
+        W_inner = body_dims['W_inner']
+        dim_fond_vertical = body_dims['fond_H']
+        dim_fond_horizontal = body_dims['fond_W']
         
         panel_dims = {
-            "Traverse Bas": (L_traverse, dims['W_raw'], t_tb),
-            "Traverse Haut": (L_traverse, dims['W_raw'], t_tb),
+            "Traverse Bas": (L_traverse, W_inner, t_tb),
+            "Traverse Haut": (L_traverse, W_inner, t_tb),
             "Montant Gauche": (h_side, dims['W_raw'], t_lr),
             "Montant Droit": (h_side, dims['W_raw'], t_lr),
             "Fond": (dim_fond_vertical, dim_fond_horizontal, t_fb)
@@ -1276,56 +1281,13 @@ def calculate_all_project_parts():
                 drawer_system = drp.get('drawer_system', 'TANDEMBOX')
                 tech_type = drp.get('drawer_tech_type', 'K')
                 
-                # Largeur utile du tiroir en fonction de la zone
-                zone_id = drp.get('zone_id', None)
-                gap_mm = drp.get('drawer_gap', 2.0)
-                t_lr = dims['t_lr_raw']
-                
-                if zone_id is not None and zone_id < len(zones_for_parts):
-                    zone = zones_for_parts[zone_id]
-                    zone_width_total = zone['x_max'] - zone['x_min']  # Largeur totale incluant chants
-                    zone_width_interior = zone_width_total - (2 * t_lr)  # Largeur intérieure
-                else:
-                    zone_width_total = L_eff
-                    zone_width_interior = L_eff - (2 * t_lr)
-                
-                # Dimensionnement selon le système
-                if drawer_system == 'LÉGRABOX':
-                    # LÉGRABOX : Face = largeur totale de la zone (incluant chants)
-                    drawer_face_width = zone_width_total - (2 * gap_mm)
-                    # Dos : largeur intérieure - 38mm
-                    drawer_back_width = max(0.0, zone_width_interior - 38.0)
-                    # Fond : largeur intérieure - 35mm, profondeur intérieure - 10mm
-                    t_fb_raw = float(dims.get('t_fb_raw', 0.0))
-                    zone_depth_interior = dims['W_raw'] - (2 * t_lr)  # Profondeur intérieure
-                    drawer_bottom_width = max(0.0, zone_width_interior - 35.0)
-                    drawer_bottom_depth = max(0.0, zone_depth_interior - 10.0)
-                    # Hauteur dos selon modèle LÉGRABOX
-                    legrabox_spec = legrabox_specs.get(tech_type, legrabox_specs['K'])
-                    fixed_back_h = legrabox_spec['back_height']
-                elif drawer_system == 'ANGLAISE':
-                    # ANGLAISE : 2 mm de jeu de chaque côté par rapport aux montants adjacents
-                    drawer_face_width = max(0.0, zone_width_total - 4.0)
-                    drawer_back_width = max(0.0, drawer_face_width - 40.0)
-                    back_height_map = {'N': 69.0, 'M': 84.0, 'K': 116.0, 'D': 199.0}
-                    fixed_back_h = back_height_map.get(tech_type, 116.0)
-                    t_fb_raw = float(dims.get('t_fb_raw', 0.0))
-                    drawer_bottom_width = max(0.0, drawer_face_width - 49.0)
-                    drawer_bottom_depth = float(dims['W_raw']) - (20.0 + t_fb_raw)
-                else:
-                    # TANDEMBOX : logique existante
-                    drawer_face_width = zone_width_total - (2 * gap_mm)
-                    drawer_back_width = max(0.0, drawer_face_width - 40.0)
-                    back_height_map = {'N': 69.0, 'M': 84.0, 'K': 116.0, 'D': 199.0}
-                    fixed_back_h = back_height_map.get(tech_type, 116.0)
-                    t_fb_raw = float(dims.get('t_fb_raw', 0.0))
-                    drawer_bottom_width = max(0.0, drawer_face_width - 49.0)
-                    drawer_bottom_depth = float(dims['W_raw']) - (20.0 + t_fb_raw)
-                
-                # Largeur de la façade (pièce visible) : toujours la largeur totale
-                # du caisson général saisie par l'utilisateur - 4mm, quelle que soit
-                # la zone (les dimensions internes du tiroir restent, elles, basées sur la zone).
-                facade_largeur_mm = max(0.0, L_eff - 4.0)
+                # Dimensions partagées avec les feuilles d'usinage.
+                drw = drawer_piece_dims(cabinet, drp, zones_for_parts)
+                drawer_back_width = drw['back_w']
+                fixed_back_h = drw['back_h']
+                drawer_bottom_width = drw['bottom_w']
+                drawer_bottom_depth = drw['bottom_d']
+                facade_largeur_mm = drw['face_w']
 
                 cav, car, cg, cd = get_automatic_edge_banding("Façade")
                 facade_ref = f"Façade Tiroir {drawer_idx+1} (C{i})"
@@ -1388,7 +1350,7 @@ def calculate_all_project_parts():
                 s_th = float(s.get('thickness', 19.0))
                 # Règle demandée: étagère = longueur de la traverse, largeur de la traverse - 19 mm.
                 dim_L = L_traverse
-                dim_W = max(0.0, dims['W_raw'] - 19.0)
+                dim_W = W_inner
                 
                 shelf_dims_cache[f"C{i}_S{s_idx}"] = (dim_L, dim_W)
                 
@@ -1449,7 +1411,7 @@ def calculate_all_project_parts():
                         and div.get('bottom_y') is not None and div.get('top_y') is not None):
                     # Montant partiel (ex: import web entre deux étagères)
                     div_h = max(0.0, min(div_h, float(div['top_y'])) - max(0.0, float(div['bottom_y'])))
-                div_w = dims['W_raw']  # Largeur (profondeur)
+                div_w = W_inner  # Largeur : profondeur - 19 (fond encastré)
                 
                 cav, car, cg, cd = get_automatic_edge_banding("Montant")
                 divider_ref = f"Montant Secondaire {div_idx+1} (C{i})"

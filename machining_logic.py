@@ -835,3 +835,121 @@ def apply_face_hole_depths(panel_name, face_holes):
                 h["diam_str"] = "⌀8/14"
         out.append(h)
     return out
+
+
+# Le fond est encastré : il se loge derrière les traverses, étagères et
+# montants secondaires, qui s'arrêtent donc à cette distance de l'arrière.
+FOND_REBATE_MM = 19.0
+# Jeu total retiré au fond encastré sur sa largeur et sa hauteur.
+FOND_INSET_MM = 38.0
+
+
+def carcass_piece_dims(cabinet):
+    """Dimensions des pièces de corps, source unique pour la feuille de débit
+    et les feuilles d'usinage.
+
+    - L_traverse : longueur des traverses / étagères (largeur utile, fileur déduit) ;
+    - W_inner : largeur des traverses, étagères et montants secondaires
+      (profondeur - 19, le fond étant encastré) ;
+    - fond_W x fond_H : fond encastré (largeur utile - 38) x (hauteur - 38).
+    """
+    dims = cabinet.get('dims', {}) or {}
+    fileur_w = float((cabinet.get('door_props', {}) or {}).get('fileur_width', 0) or 0.0)
+    L_eff = max(0.0, float(dims.get('L_raw', 0.0)) - fileur_w)
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    W_raw = float(dims.get('W_raw', 0.0))
+    H_raw = float(dims.get('H_raw', 0.0))
+    return {
+        'L_eff': L_eff,
+        'L_traverse': max(0.0, L_eff - 2.0 * t_lr),
+        'W_inner': max(0.0, W_raw - FOND_REBATE_MM),
+        'fond_W': max(0.0, L_eff - FOND_INSET_MM),
+        'fond_H': max(0.0, H_raw - FOND_INSET_MM),
+    }
+
+
+def find_element_zone(element, zones, tol=1.0):
+    """Zone d'un élément (tiroir...) : d'abord par ses coordonnées enregistrées
+    (l'indice peut être périmé si les zones ont été recalculées), sinon par indice."""
+    coords = element.get('stored_zone_coords')
+    if coords:
+        for zone in zones:
+            if (abs(float(zone['x_min']) - float(coords['x_min'])) <= tol
+                    and abs(float(zone['x_max']) - float(coords['x_max'])) <= tol
+                    and float(zone['y_min']) - tol <= float(coords.get('y_min', zone['y_min']))
+                    and float(coords.get('y_max', zone['y_max'])) <= float(zone['y_max']) + tol):
+                return zone
+        # Même colonne, quelle que soit la hauteur.
+        for zone in zones:
+            if (abs(float(zone['x_min']) - float(coords['x_min'])) <= tol
+                    and abs(float(zone['x_max']) - float(coords['x_max'])) <= tol):
+                return zone
+    zone_id = element.get('zone_id')
+    if zone_id is not None and 0 <= zone_id < len(zones):
+        return zones[zone_id]
+    return None
+
+
+def drawer_piece_dims(cabinet, drp, zones):
+    """Dimensions des pièces d'un tiroir, source unique (débit + usinage).
+
+    `zones` : zones 2D du caisson calculées sur sa largeur utile (fileur déduit).
+    Retourne aussi la position X (repère caisson) du caisson de tiroir, pour
+    placer les perçages de la façade en face de lui.
+    """
+    from project_definitions import get_legrabox_specs
+    dims = cabinet.get('dims', {}) or {}
+    body = carcass_piece_dims(cabinet)
+    L_eff = body['L_eff']
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    W_raw = float(dims.get('W_raw', 0.0))
+    t_fb = float(dims.get('t_fb_raw', 0.0))
+    system = drp.get('drawer_system', 'TANDEMBOX')
+    tech = drp.get('drawer_tech_type', 'K')
+    gap = float(drp.get('drawer_gap', 2.0))
+
+    zone = find_element_zone(drp, zones)
+    if zone is not None:
+        z_x0, z_x1 = float(zone['x_min']), float(zone['x_max'])
+    else:
+        z_x0, z_x1 = t_lr, L_eff - t_lr
+    zone_total = (z_x1 - z_x0) if zone is not None else L_eff
+    zone_interior = zone_total - 2.0 * t_lr
+
+    if system == 'LÉGRABOX':
+        box_face = zone_total - 2.0 * gap
+        back_w = max(0.0, zone_interior - 38.0)
+        back_h = get_legrabox_specs().get(tech, get_legrabox_specs()['K'])['back_height']
+        bottom_w = max(0.0, zone_interior - 35.0)
+        bottom_d = max(0.0, W_raw - 2.0 * t_lr - 10.0)
+    elif system == 'ANGLAISE':
+        box_face = max(0.0, zone_total - 4.0)
+        back_w = max(0.0, box_face - 40.0)
+        back_h = {'N': 69.0, 'M': 84.0, 'K': 116.0, 'D': 199.0}.get(tech, 116.0)
+        bottom_w = max(0.0, box_face - 49.0)
+        bottom_d = W_raw - (20.0 + t_fb)
+    else:
+        box_face = zone_total - 2.0 * gap
+        back_w = max(0.0, box_face - 40.0)
+        back_h = {'N': 69.0, 'M': 84.0, 'K': 116.0, 'D': 199.0}.get(tech, 116.0)
+        bottom_w = max(0.0, box_face - 49.0)
+        bottom_d = W_raw - (20.0 + t_fb)
+
+    # Façade : toute la largeur utile du caisson - 4 mm, posée à 2 mm du bord.
+    face_w = max(0.0, L_eff - 4.0)
+    face_x0 = 2.0
+    # Bords du caisson de tiroir (même règle que la façade « zone »).
+    if zone is not None:
+        box_x0 = z_x0 + gap
+        box_x1 = z_x1 - gap
+    else:
+        box_x0, box_x1 = face_x0, face_x0 + face_w
+    return {
+        'system': system, 'tech': tech,
+        'face_w': face_w, 'face_h': float(drp.get('drawer_face_H_raw', 150.0)),
+        'face_t': float(drp.get('drawer_face_thickness', 19.0)),
+        'box_x0_on_face': box_x0 - face_x0, 'box_x1_on_face': box_x1 - face_x0,
+        'back_w': back_w, 'back_h': float(back_h),
+        'bottom_w': bottom_w, 'bottom_d': bottom_d,
+        'inner_t': float(drp.get('inner_thickness', 16.0)),
+    }
