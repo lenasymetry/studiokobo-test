@@ -179,19 +179,43 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         html_data = str(exc).encode("utf-8", errors="ignore")
         html_ok = False
 
+    # Export DXF : 1 présentation (layout A3) par pièce — mêmes données de
+    # pièces et de perçages que les feuilles d'usinage du site.
     try:
         from export_manager import generate_stacked_html_plans
+        from dxf_export.machining_sheets import export_machining_sheets_dxf
 
-        dwg_data, dwg_ok = generate_stacked_html_plans(
-            scene,
-            indices,
-            output_format="dxf",
+        sheet_plans, plans_ok = generate_stacked_html_plans(scene, indices, output_format="plans")
+        if not plans_ok or not isinstance(sheet_plans, list) or not sheet_plans:
+            raise RuntimeError("aucune feuille d'usinage")
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+        dwg_data = export_machining_sheets_dxf(
+            sheet_plans,
+            project_info={
+                "project_name": st.session_state.project_name,
+                "client": st.session_state.get("client", ""),
+                "version": "V1",
+                "date": datetime.date.today().strftime("%d/%m/%Y"),
+            },
+            logo_path=logo_path if os.path.exists(logo_path) else None,
         )
-        dwg_filename = f"Plans_{st.session_state.project_name.replace(' ', '_')}.dxf"
+        dwg_ok = True
+        dwg_filename = f"usinage_{st.session_state.project_name.replace(' ', '_')}.dxf"
     except Exception as exc:
-        dwg_data = str(exc).encode("utf-8", errors="ignore")
-        dwg_ok = False
-        dwg_filename = None
+        print(f"[DXF] Export multi-layout indisponible, repli sur l'ancien tracé : {exc}", file=sys.stderr)
+        try:
+            from export_manager import generate_stacked_html_plans
+
+            dwg_data, dwg_ok = generate_stacked_html_plans(
+                scene,
+                indices,
+                output_format="dxf",
+            )
+            dwg_filename = f"Plans_{st.session_state.project_name.replace(' ', '_')}.dxf"
+        except Exception as exc2:
+            dwg_data = str(exc2).encode("utf-8", errors="ignore")
+            dwg_ok = False
+            dwg_filename = None
 
     try:
         from excel_export import create_styled_excel

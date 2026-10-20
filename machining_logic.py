@@ -476,68 +476,53 @@ def calculate_back_panel_holes(W_back, H_back, cabinet):
     - L'espacement entre les trous est d'environ 100 mm, ajusté pour respecter les 50 mm aux bords
     - Pour chaque montant secondaire, les trous doivent être au centre du montant
     """
+    import math
     holes = []
-    # Trous de tourillons pour les montants secondaires (au centre de chaque panneau)
-    if 'vertical_dividers' in cabinet and cabinet['vertical_dividers']:
-        for div in cabinet['vertical_dividers']:
-            div_x = div['position_x']
-            div_thickness = div.get('thickness', 19.0)
-            
-            # Position au centre du montant
-            # IMPORTANT: div_x est déjà en coordonnées relatives au bord intérieur du montant gauche
-            # Le fond commence également au bord intérieur, donc pas besoin de soustraire t_lr
-            x_center = div_x + div_thickness / 2.0
-            x_rel = x_center  # Pas de soustraction de t_lr !
-            
-            # Premier trou à 50 mm du bord bas, dernier trou à 50 mm du bord haut
+    dims = cabinet.get('dims', {}) or {}
+    L_raw = float(dims.get('L_raw', W_back + 2.0))
+    H_raw = float(dims.get('H_raw', H_back + 2.0))
+    t_tb = float(dims.get('t_tb_raw', 19.0))
+    # Le panneau arrière est centré sur le caisson (jeu réparti sur les bords).
+    back_off_x = (L_raw - float(W_back)) / 2.0
+    back_off_y = (H_raw - float(H_back)) / 2.0
+    interior_h = H_raw - 2.0 * t_tb
+
+    # Trous de tourillons pour les montants secondaires (dans l'axe du montant,
+    # répartis sur la hauteur réelle du montant).
+    for div in cabinet.get('vertical_dividers', []) or []:
+        # position_x = axe du montant, mesuré depuis le bord gauche du caisson.
+        x_rel = float(div['position_x']) - back_off_x
+
+        if div.get('_force_full_height') or div.get('bottom_y') is None or div.get('top_y') is None:
+            div_bottom, div_top = 0.0, interior_h
+        else:
+            div_bottom = max(0.0, min(interior_h, float(div['bottom_y'])))
+            div_top = max(div_bottom, min(interior_h, float(div['top_y'])))
+        full_height = div_bottom <= 0.5 and div_top >= interior_h - 0.5
+
+        if full_height:
+            # Premier/dernier trou à 50 mm des bords du panneau.
             y_start = 50.0
-            y_end = H_back - 50.0
-            
-            # Si la hauteur disponible est trop petite, mettre un seul trou au milieu
+            y_end = float(H_back) - 50.0
+        else:
+            # Montant partiel : 50 mm de ses extrémités (ramené au repère du panneau).
+            seg_lo = t_tb + div_bottom - back_off_y
+            seg_hi = t_tb + div_top - back_off_y
+            y_start = seg_lo + 50.0
+            y_end = seg_hi - 50.0
             if y_end <= y_start:
-                y_center = H_back / 2.0
-                holes.append({'type': 'tourillon', 'x': x_rel, 'y': y_center, 'diam_str': "⌀8/22"})
-            else:
-                # Distance disponible pour répartir les trous
-                available_space = y_end - y_start
-                
-                # Calculer le nombre d'intervalles pour avoir environ 100 mm d'espacement
-                # On utilise floor pour rester proche de 100 mm (plutôt que de dépasser)
-                import math
-                num_intervals = max(1, math.floor(available_space / 100.0))
-                
-                # Calculer l'espacement exact pour remplir l'espace disponible
-                spacing = available_space / num_intervals
-                
-                # Générer les trous avec l'espacement calculé
-                # Premier trou exactement à 50 mm
-                holes.append({'type': 'tourillon', 'x': x_rel, 'y': y_start, 'diam_str': "⌀8/22"})
-                
-                # Trous intermédiaires
-                for i in range(1, num_intervals):
-                    y = y_start + i * spacing
-                    holes.append({'type': 'tourillon', 'x': x_rel, 'y': y, 'diam_str': "⌀8/22"})
-                
-                # Dernier trou exactement à H_back - 50 mm
-                holes.append({'type': 'tourillon', 'x': x_rel, 'y': y_end, 'diam_str': "⌀8/22"})
-                # On utilise floor pour rester proche de 100 mm (plutôt que de dépasser)
-                import math
-                num_intervals = max(1, math.floor(available_space / 100.0))
-                
-                # Calculer l'espacement exact pour remplir l'espace disponible
-                spacing = available_space / num_intervals
-                
-                # Générer les trous avec l'espacement calculé
-                # Premier trou exactement à 50 mm
-                holes.append({'type': 'tourillon', 'x': x_rel, 'y': y_start, 'diam_str': "⌀8/22"})
-                
-                # Trous intermédiaires
-                for k in range(1, num_intervals):
-                    y = y_start + k * spacing
-                    holes.append({'type': 'tourillon', 'x': x_rel, 'y': y, 'diam_str': "⌀8/22"})
-                
-                # Dernier trou exactement à H_back - 50 mm
-                holes.append({'type': 'tourillon', 'x': x_rel, 'y': y_end, 'diam_str': "⌀8/22"})
+                y_start = y_end = (seg_lo + seg_hi) / 2.0
+
+        if y_end <= y_start:
+            holes.append({'type': 'tourillon', 'x': x_rel, 'y': (y_start + y_end) / 2.0, 'diam_str': "⌀8/22"})
+            continue
+
+        # Espacement d'environ 100 mm, ajusté pour tomber juste aux extrémités.
+        available_space = y_end - y_start
+        num_intervals = max(1, math.floor(available_space / 100.0))
+        spacing = available_space / num_intervals
+        for i in range(num_intervals + 1):
+            holes.append({'type': 'tourillon', 'x': x_rel, 'y': y_start + i * spacing, 'diam_str': "⌀8/22"})
 
     # Trous de vis sur tout le pourtour du panneau arrière
     # - 8 mm du bord

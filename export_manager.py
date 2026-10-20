@@ -857,6 +857,60 @@ def _redistribute_hinge_y_positions_with_edge_offset(hinge_y_positions, door_hei
     step = span / float(n - 1)
     return [y_min + (i * step) for i in range(n)]
 
+def _imported_door_hinge_edges(imp_door):
+    """[(x du bord côté charnières, côté de la porte par rapport à ce bord)].
+
+    door_side = 'right' : la porte est à droite du bord (charnières à gauche).
+    """
+    x_left = float(imp_door.get('x_left_mm', 0.0))
+    x_right = float(imp_door.get('x_right_mm', 0.0))
+    if imp_door.get('is_double_leaf'):
+        return [(x_left, 'right'), (x_right, 'left')]
+    if imp_door.get('door_opening') == 'left':
+        return [(x_left, 'right')]
+    return [(x_right, 'left')]
+
+
+def _hinge_panel_for_edge(cab, hinge_x, door_side, t_lr, L_raw):
+    """Pièce verticale qui reçoit les embases : ('mg'|'md'|'div_left'|'div_right', index).
+
+    On retient la face libre la plus proche du bord de porte, côté charnières :
+    la porte peut recouvrir tout ou partie de l'épaisseur du panneau, et le
+    configurateur arrondit ses bords au centimètre. Les faces collées l'une à
+    l'autre (double montant) ne reçoivent rien.
+    """
+    dividers = cab.get('vertical_dividers', []) or []
+    faces = []  # (x de la face, cible, épaisseur du panneau)
+    if door_side == 'right':
+        faces.append((t_lr, ('mg', None), t_lr))
+    else:
+        faces.append((L_raw - t_lr, ('md', None), t_lr))
+    for idx, div in enumerate(dividers):
+        c = float(div.get('position_x', 0.0))
+        th = float(div.get('thickness', 19.0))
+        face_x = c + th / 2.0 if door_side == 'right' else c - th / 2.0
+        glued = False
+        for jdx, other in enumerate(dividers):
+            if jdx == idx:
+                continue
+            oc = float(other.get('position_x', 0.0))
+            oth = float(other.get('thickness', 19.0))
+            other_face = oc - oth / 2.0 if door_side == 'right' else oc + oth / 2.0
+            same_height = (float(other.get('bottom_y', 0.0)) < float(div.get('top_y', 1e9))
+                           and float(other.get('top_y', 1e9)) > float(div.get('bottom_y', 0.0)))
+            if abs(other_face - face_x) < 1.0 and same_height:
+                glued = True
+                break
+        if not glued:
+            faces.append((face_x, ('div_right' if door_side == 'right' else 'div_left', idx), th))
+    best = None
+    for face_x, target, th in faces:
+        dist = abs(face_x - hinge_x)
+        if dist <= max(6.0, th + 1.0) and (best is None or dist < best[0]):
+            best = (dist, target)
+    return best[1] if best else None
+
+
 def _divider_vertical_span(div, interior_h):
     """(bas, haut) du montant secondaire en mm depuis le dessus de la traverse basse."""
     if div.get('_force_full_height') or div.get('bottom_y') is None or div.get('top_y') is None:
@@ -955,6 +1009,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
     dxf_expected_count = 0
     dxf_expected_titles: list = []
     figures_out = []
+    # 'plans' : données brutes de chaque feuille d'usinage (dimensions, chants,
+    # perçages), pour le générateur DXF dxf_export.machining_sheets.
+    plans_out = []
     if output_format == 'dxf':
         if not EZDXF_AVAILABLE:
             return b"Le module 'ezdxf' est requis pour l'export AutoCAD.", False
@@ -1008,6 +1065,19 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
 
     def _add_plan(title, Lp, Wp, Tp, ch, fh, t_long_h, t_cote_h, cut, has_rebate, proj_for_plan):
         nonlocal dxf_plan_index
+        if output_format == 'plans':
+            plans_out.append({
+                'title': title,
+                'L': float(Lp), 'W': float(Wp), 'T': float(Tp),
+                'chants': dict(ch or {}),
+                'face_holes': [dict(h) for h in (fh or [])],
+                'tranche_long_holes': [dict(h) for h in (t_long_h or [])],
+                'tranche_side_holes': [dict(h) for h in (t_cote_h or [])],
+                'cutout': cut,
+                'has_rebate': bool(has_rebate),
+                'project': dict(proj_for_plan or {}),
+            })
+            return None
         if output_format == 'dxf':
             _add_plan_to_dxf(
                 dxf_msp,
@@ -1376,6 +1446,29 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                             holes_md.append({'type':'vis','x':20.0,'y':y,'diam_str':"⌀5/11.5"})
                             holes_md.append({'type':'vis','x':52.0,'y':y,'diam_str':"⌀5/11.5"})
 
+            # --- PORTES IMPORTÉES (JSON web) : embases de charnières ---
+            # Chaque charnière se visse sur la pièce verticale du côté charnières
+            # de la porte : montant gauche/droit ou face d'un montant secondaire.
+            for imp_door in cab.get('imported_doors', []) or []:
+                for hinge_x, door_side in _imported_door_hinge_edges(imp_door):
+                    d_bottom = float(imp_door.get('door_bottom_offset', 0.0))
+                    for y in get_hinge_y_positions(float(imp_door.get('door_face_H_raw', 0.0))):
+                        y_m = d_bottom + y
+                        target = _hinge_panel_for_edge(cab, hinge_x, door_side, t_lr, L_raw)
+                        if target is None:
+                            continue
+                        kind, div_idx = target
+                        if kind == 'mg':
+                            dest, xs = holes_mg, (20.0, 52.0)
+                        elif kind == 'md':
+                            dest, xs = holes_md, (W_mont - 20.0, W_mont - 52.0)
+                        elif kind == 'div_left':
+                            dest, xs = divider_element_holes_left[div_idx], (W_mont - 20.0, W_mont - 52.0)
+                        else:
+                            dest, xs = divider_element_holes_right[div_idx], (20.0, 52.0)
+                        for x in xs:
+                            dest.append({'type': 'vis', 'x': x, 'y': y_m, 'diam_str': "⌀5/11.5"})
+
             # --- TIROIRS (MÊME LOGIQUE QUE 2.PY) ---
             if 'drawers' in cab and cab['drawers']:
                 for drawer_idx, drp in enumerate(cab['drawers']):
@@ -1669,6 +1762,22 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     plan_quantities[f"Porte (C{cab_idx})"] = 1
                     plans.append((f"Porte (C{cab_idx})", dW, dH, dp['door_thickness'], c_p, holes_p, [], [], None))
             
+            # --- PORTES IMPORTÉES (JSON web) : feuilles de porte ---
+            for door_idx, imp_door in enumerate(cab.get('imported_doors', []) or [], start=1):
+                dH = float(imp_door.get('door_face_H_raw', 0.0))
+                dW_total = max(0.0, float(imp_door.get('x_right_mm', 0.0)) - float(imp_door.get('x_left_mm', 0.0)))
+                is_double = bool(imp_door.get('is_double_leaf', False))
+                dW = dW_total / 2.0 if is_double else dW_total
+                if dH <= 0.0 or dW <= 0.0:
+                    continue
+                y_h = get_hinge_y_positions(dH)
+                hinge_side = 'left' if is_double else ('left' if imp_door.get('door_opening') == 'left' else 'right')
+                holes_p = _build_door_face_holes(dW, y_h, hinge_side=hinge_side)
+                c_p = {"Chant Avant": True, "Chant Arrière": True, "Chant Gauche": True, "Chant Droit": True}
+                title_p = f"Porte {door_idx} (C{cab_idx})"
+                plan_quantities[title_p] = 2 if is_double else 1
+                plans.append((title_p, dW, dH, float(imp_door.get('door_thickness', 19.0)), c_p, holes_p, [], [], None))
+
             # --- MONTANTS SECONDAIRES (MÊME LOGIQUE QUE 2.PY) ---
             if 'vertical_dividers' in cab and cab['vertical_dividers']:
                 for div_idx, div in enumerate(cab['vertical_dividers']):
@@ -1704,7 +1813,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     proj_for_plan['quantity'] = plan_quantities[title]
                 dxf_expected_titles.append(f"C{cab_idx} · {title}")
                 fig = _add_plan(title, Lp, Wp, Tp, ch, fh, t_long_h, t_cote_h, cut, has_rebate, proj_for_plan)
-                if output_format == 'dxf':
+                if output_format in ('dxf', 'plans'):
                     continue
 
                 if output_format == 'figures':
@@ -1857,6 +1966,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
 
         if output_format == 'figures':
             return figures_out, True
+
+        if output_format == 'plans':
+            return plans_out, True
 
         if output_format == 'html':
             full_html += """

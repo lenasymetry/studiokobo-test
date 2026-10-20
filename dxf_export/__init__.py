@@ -91,8 +91,21 @@ def _build_parts_from_project(project_data) -> List[PartSpec]:
         if not figs_ok:
             figs = []
 
+        used_ids = set()
         for n, (title, fig) in enumerate(figs, start=1):
             element_id = sanitize_table_name(str(title or f"ELEMENT_{n:02d}"), fallback=f"ELEMENT_{n:02d}", max_len=31)
+            # Deux feuilles peuvent porter le même titre (ex: étagères au même
+            # nom mais aux perçages différents) : identifiant rendu unique.
+            if element_id.upper() in used_ids:
+                k = 2
+                while True:
+                    suffix = f"_{k}"
+                    candidate = element_id[:31 - len(suffix)] + suffix
+                    if candidate.upper() not in used_ids:
+                        element_id = candidate
+                        break
+                    k += 1
+            used_ids.add(element_id.upper())
             fig_meta = getattr(getattr(fig, "layout", None), "meta", None) or {}
             qty = 1
             try:
