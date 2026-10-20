@@ -59,7 +59,7 @@ LAYERS = {
     "CONTOUR": 7,
     "TRANCHES": 7,
     "HACHURES": 8,
-    "TROUS": 4,
+    "TROUS": 7,
     "AXES": 8,
     "USINAGE": 6,
     "COTES": 1,
@@ -150,6 +150,26 @@ def _cutout_props(cut):
     if isinstance(cut, (tuple, list)) and len(cut) >= 3:
         return {"type": "integrated_cutout", "width": cut[0], "height": cut[1], "offset_top": cut[2]}
     return None
+
+
+def _display_title(title: str) -> str:
+    """Désignation lisible à l'atelier (cartouche et onglet)."""
+    t = str(title or "")
+    if t.lower().startswith("panneau arri"):
+        t = "Fond (panneau arrière)" + t[len("Panneau Arrière (F)"):]
+    t = re.sub(r"Montant Secondaire (\d+) \((C\d+)\) - ([12])/2",
+               lambda m: f"Montant secondaire {m.group(1)} ({m.group(2)}) - face {m.group(3)}/2", t)
+    return t
+
+
+def _layout_name(index: int, corps: str, title: str) -> str:
+    """Nom d'onglet AutoCAD : caractères interdits (<>/\\":;?*|,=`) remplacés."""
+    import unicodedata
+    raw = f"{index:02d} - {corps} - {title}" if corps else f"{index:02d} - {title}"
+    raw = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    raw = raw.replace("/", "-")
+    raw = re.sub(r'[<>\\":;?*|,=`]', "", raw)
+    return re.sub(r"\s+", " ", raw).strip()[:120]
 
 
 def _triangles_for(title: str):
@@ -659,14 +679,12 @@ def export_machining_sheets_dxf(plans: List[dict], project_info: Optional[dict] 
 
         proj = plan.get("project") or {}
         corps = str(proj.get("corps_meuble", "")).replace("Caisson", "C").replace(" ", "")
-        short_title = (sheet.title.replace(f"({corps})", "")
-                       .replace("Montant Secondaire ", "MS").replace(" - 1/2", " face1").replace(" - 2/2", " face2"))
-        base_name = sanitize_table_name(f"{i:02d} {corps} {short_title}",
-                                        fallback=f"FEUILLE_{i:02d}", max_len=31)
+        designation = _display_title(sheet.title)
+        base_name = _layout_name(i, corps, designation.replace(f"({corps})", "").replace("  ", " ").strip())
         name = base_name
         k = 2
         while name.upper() in used_names:
-            name = f"{base_name[:28]}_{k}"
+            name = f"{base_name} ({k})"
             k += 1
         used_names.add(name.upper())
         layout = _setup_layout(doc, name)
@@ -691,7 +709,7 @@ def export_machining_sheets_dxf(plans: List[dict], project_info: Optional[dict] 
             "date": proj.get("date") or project_info.get("date", ""),
             "project_name": proj.get("project_name") or project_info.get("project_name", ""),
             "corps_meuble": proj.get("corps_meuble", ""),
-            "part_name": sheet.title,
+            "part_name": designation,
             "quantity": proj.get("quantity", 1),
             "scale": "1:1" if s == 1 else f"1:{_fmt(s)}",
             "sheet_index": i,

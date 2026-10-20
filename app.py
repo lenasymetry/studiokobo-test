@@ -188,6 +188,37 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         sheet_plans, plans_ok = generate_stacked_html_plans(scene, indices, output_format="plans")
         if not plans_ok or not isinstance(sheet_plans, list) or not sheet_plans:
             raise RuntimeError("aucune feuille d'usinage")
+        # Chaque pièce a sa feuille : joues et plinthes (sans perçage) en plus,
+        # reprises de la feuille de débit, après les feuilles de leur caisson.
+        for part in all_parts or []:
+            ref = str(part.get("Référence Pièce", ""))
+            if not any(k in ref.lower() for k in ("joue", "plinthe")):
+                continue
+            caissons = str(part.get("Caisson", ""))
+            first_c = caissons.split(",")[0].strip()
+            corps = f"Caisson {first_c[1:]}" if first_c.upper().startswith("C") and first_c[1:].isdigit() else caissons
+            extra_plan = {
+                "title": ref,
+                "L": float(part.get("Longueur (mm)", 0.0) or 0.0),
+                "W": float(part.get("Largeur (mm)", 0.0) or 0.0),
+                "T": float(part.get("Epaisseur", 19.0) or 19.0),
+                "chants": {k: bool(part.get(k)) for k in ("Chant Avant", "Chant Arrière", "Chant Gauche", "Chant Droit")},
+                "face_holes": [], "tranche_long_holes": [], "tranche_side_holes": [],
+                "cutout": None, "has_rebate": False,
+                "project": {
+                    "project_name": st.session_state.project_name,
+                    "corps_meuble": corps,
+                    "quantity": part.get("Qté", 1),
+                    "date": datetime.date.today().strftime("%d/%m/%Y"),
+                },
+            }
+            if extra_plan["L"] <= 0.0 or extra_plan["W"] <= 0.0:
+                continue
+            insert_at = len(sheet_plans)
+            for idx_p, existing in enumerate(sheet_plans):
+                if (existing.get("project") or {}).get("corps_meuble") == corps:
+                    insert_at = idx_p + 1
+            sheet_plans.insert(insert_at, extra_plan)
         logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
         dwg_data = export_machining_sheets_dxf(
             sheet_plans,
