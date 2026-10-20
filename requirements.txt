@@ -1,9 +1,15 @@
 streamlit==1.44.1
 plotly==6.0.1
-numpy==2.2.4
-pandas==2.2.3
+# Python 3.13 : versions validées. Python 3.14 (défaut du Cloud) : plus proches
+# versions publiées en roue précompilée, sinon numpy est recompilé depuis les
+# sources et le déploiement reste bloqué (« Your app is in the oven »).
+numpy==2.2.4; python_version < "3.14"
+numpy==2.3.5; python_version >= "3.14"
+pandas==2.2.3; python_version < "3.14"
+pandas==2.3.3; python_version >= "3.14"
 openpyxl==3.1.5
-Pillow==11.1.0
+Pillow==11.1.0; python_version < "3.14"
+Pillow==11.3.0; python_version >= "3.14"
 ezdxf==1.4.2
 kaleido==0.2.1
 matplotlib>=3.7.0
