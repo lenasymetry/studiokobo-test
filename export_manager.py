@@ -863,23 +863,33 @@ HINGE_JUNCTION_SHIFT = 150.0      # ... déplacée à cette distance sous la jon
 
 
 def _door_hinge_positions(door_cab, door_height, door_z_bottom):
-    """Positions des charnières (depuis le bas du vantail) par vantail.
+    """Positions des charnières par vantail, source unique pour la feuille de
+    porte ET les embases des montants.
 
-    Retourne {'left': [...], 'right': [...]} ('left' = vantail charnières à
-    gauche ou porte simple). Source unique pour la feuille de porte ET les
-    embases des montants. Porte commune à plusieurs caissons : une charnière
-    à moins de 50 mm de la jonction est descendue à 150 mm sous la jonction.
+    Retourne :
+    - 'left' / 'right' : hauteurs RÉELLES depuis le bas du vantail (vantail
+      charnières à gauche ou porte simple / vantail charnières à droite) ;
+    - 'sheet_left' / 'sheet_right' : mêmes charnières dans le repère de la
+      feuille d'usinage (le vantail droit d'une porte double cache-pieds est
+      dessiné retourné : y feuille = hauteur - y réel).
+
+    Cache-pieds : la porte descend devant les pieds, où aucun montant ne peut
+    recevoir de charnière ; la charnière basse est remontée de la descente
+    (au niveau du bas du caisson) et les autres réparties en conséquence.
+    Porte commune à plusieurs caissons : une charnière à moins de 50 mm de la
+    jonction est descendue à 150 mm sous la jonction.
     """
     dp = door_cab.get('door_props', {}) or {}
-    y_h = _compute_door_hinge_y_positions(door_height, dp)
-    if dp.get('door_type', 'single') == 'double' and dp.get('door_model') == 'floor_length':
-        y_left = _redistribute_hinge_y_positions_with_edge_offset(
-            y_h, door_height, edge='min', extra_offset_mm=_cache_pied_hinge_offset())
-        y_right = _redistribute_hinge_y_positions_with_edge_offset(
-            y_h, door_height, edge='max', extra_offset_mm=_cache_pied_hinge_offset())
+    H = float(door_height)
+    y_h = _compute_door_hinge_y_positions(H, dp)
+    is_floor = dp.get('door_model') == 'floor_length'
+    drop = max(0.0, -float(door_z_bottom)) if is_floor else 0.0
+    custom = dp.get('hinge_mode') == 'custom' and dp.get('custom_hinge_positions')
+    if drop > 0.0 and not custom:
+        phys = _redistribute_hinge_y_positions_with_edge_offset(
+            y_h, H, edge='min', extra_offset_mm=drop)
     else:
-        y_left = list(y_h)
-        y_right = list(y_h)
+        phys = list(y_h)
 
     junctions = []
     H_cab = float(door_cab.get('dims', {}).get('H_raw', 0.0) or 0.0)
@@ -896,7 +906,11 @@ def _door_hinge_positions(door_cab, door_height, door_z_bottom):
             out.append(y)
         return sorted(out)
 
-    return {'left': _avoid(y_left), 'right': _avoid(y_right)}
+    left = _avoid(phys)
+    right = _avoid(phys)
+    is_double = dp.get('door_type', 'single') == 'double'
+    sheet_right = sorted(H - y for y in right) if (is_double and is_floor) else list(right)
+    return {'left': left, 'right': right, 'sheet_left': list(left), 'sheet_right': sheet_right}
 
 
 def _door_leaf_hinge_rows(door_cab, door_height, door_z_bottom):
@@ -1821,13 +1835,13 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         c_p = {"Chant Avant":True, "Chant Arrière":True, "Chant Gauche":True, "Chant Droit":True}
 
                         title_left = f"PORTE DROITE (C{cab_idx})"
-                        y_h_left = hinge_pos['left']
+                        y_h_left = hinge_pos['sheet_left']
                         holes_p_left = _build_door_face_holes(dW_half, y_h_left, hinge_side='left')
                         plans.append((title_left, dW_half, dH, dp['door_thickness'], c_p, holes_p_left, [], [], None))
                         plan_quantities[title_left] = 1
 
                         title_right = f"PORTE GAUCHE (C{cab_idx})"
-                        y_h_right = hinge_pos['right']
+                        y_h_right = hinge_pos['sheet_right']
                         # Keep cups on the same panel side as the left variant; only Y distribution is mirrored.
                         holes_p_right = _build_door_face_holes(dW_half, y_h_right, hinge_side='left')
                         plans.append((title_right, dW_half, dH, dp['door_thickness'], c_p, holes_p_right, [], [], None))
