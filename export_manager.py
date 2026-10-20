@@ -4,7 +4,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import calculate_back_panel_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1550,6 +1550,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             
             # Panneau arrière
             holes_fond = calculate_back_panel_holes(W_back, H_back, cab)
+            fond_t_long, fond_t_cote = calculate_back_panel_edge_holes(W_back, H_back)
 
             proj = {"project_name": st.session_state.project_name, "corps_meuble": f"Caisson {cab_idx}", "quantity": 1, "date": datetime.date.today().strftime("%d/%m/%Y")}
             # plan_quantities est déjà initialisé avant la boucle des étagères (ligne 171)
@@ -1578,7 +1579,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             if base_el.get('has_right_upright', True):
                 plans.append(("Montant Droit (Md)", W_mont, h_side, t_lr, c_mont, holes_md, [], tranche_holes_md, None))
             if base_el.get('has_back_panel', True):
-                plans.append(("Panneau Arrière (F)", W_back, H_back, t_fb, c_fond, holes_fond, [], [], None))
+                plans.append(("Panneau Arrière (F)", W_back, H_back, t_fb, c_fond, holes_fond, fond_t_long, fond_t_cote, None))
 
             # --- TIROIRS (GROUPÉS PAR DIMENSIONS IDENTIQUES) ---
             if 'drawers' in cab and cab['drawers']:
@@ -2259,6 +2260,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                         holes_md.append({'type': 'vis', 'x': W_mont - x_s, 'y': y_slide, 'diam_str': "⌀5/12"})
         
         holes_fond = calculate_back_panel_holes(W_back, H_back, cab)
+        fond_t_long, fond_t_cote = calculate_back_panel_edge_holes(W_back, H_back)
         
         proj = {
             "project_name": st.session_state.project_name,
@@ -2470,7 +2472,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
             fig_fond = draw_machining_view_pro_final(
                 f"Panneau Arrière (C{cab_idx})", W_back, H_back, t_fb,
                 st.session_state.unit_select, proj, c_fond,
-                holes_fond, [], [], None, False
+                holes_fond, fond_t_long, fond_t_cote, None, False
             )
             all_figures.append((f"Panneau Arrière (C{cab_idx})", fig_fond))
         

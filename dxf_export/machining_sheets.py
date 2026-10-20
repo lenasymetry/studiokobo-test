@@ -115,31 +115,49 @@ def _unique_sorted(values, tol=0.05):
     return out
 
 
-MIN_SEG = 9.0          # écart mini (mm papier) pour qu'une cote de chaîne reste lisible
+ROW_STEP = 5.0         # écart entre deux rangées d'une chaîne étagée (mm papier)
 
 
-def _clusters(face, key, s):
-    """Regroupe les positions trop proches pour une chaîne lisible.
+def _stagger(positions, lo, hi, s):
+    """Chaîne de cotes étagée : chaque cote va sur la 1re rangée où son texte
+    ne chevauche pas celui d'une autre. Retourne ([(a, b, rangée)], nb rangées)."""
+    pts = _unique_sorted([lo] + [p for p in positions if lo - 0.05 <= p <= hi + 0.05] + [hi])
+    rows, segs = [], []
+    for a, b in zip(pts, pts[1:]):
+        if b - a < 0.05:
+            continue
+        tw = (len(_fmt(b - a)) * TXT_H * 0.75 + 1.5) * s
+        c = (a + b) / 2.0
+        for r in range(len(rows) + 1):
+            if r == len(rows):
+                rows.append(-1e18)
+            if c - tw / 2.0 >= rows[r]:
+                rows[r] = c + tw / 2.0
+                segs.append((a, b, r))
+                break
+    return segs, max(1, len(rows))
 
-    Retourne [(position représentative, [positions du groupe])] ; la position
-    représentative est celle du plus gros perçage du groupe (ex: cuvette).
-    """
-    pts = sorted({round(h[key], 2): h for h in face}.items())
-    out = []
-    for pos, h in pts:
-        d = _hole_diameter(h.get("diam_str"), 5.0)
-        if out and pos - out[-1]["members"][-1] < MIN_SEG * s:
-            out[-1]["members"].append(pos)
-            if d > out[-1]["d"]:
-                out[-1]["rep"], out[-1]["d"] = pos, d
-        else:
-            out.append({"rep": pos, "d": d, "members": [pos]})
-    return [(c["rep"], c["members"]) for c in out]
 
-
-def _has_clusters(sheet, s):
+def _face_rows(sheet, s):
     face = sheet.face_holes()
-    return any(len(m) > 1 for key in ("_x", "_y") for _, m in _clusters(face, key, s))
+    if not face:
+        return 0, 0
+    _, nx = _stagger([h["_x"] for h in face], 0.0, sheet.Wd, s)
+    _, ny = _stagger([h["_y"] for h in face], 0.0, sheet.Hd, s)
+    return nx, ny
+
+
+def _tranche_rows(sheet, side_info, side, s):
+    holes = side_info["holes"]
+    if not holes:
+        return 0
+    horizontal = side in ("bottom", "top")
+    pos = []
+    for h in holes:
+        px, py = sheet.edge_point(side_info["edge"], h["_t"])
+        pos.append(px if horizontal else py)
+    _, n = _stagger(pos, 0.0, sheet.Wd if horizontal else sheet.Hd, s)
+    return n
 
 
 def _cutout_props(cut):
@@ -301,10 +319,11 @@ def _side_layout(sheet: _Sheet, s: float):
     if not has_face_x:
         gap["bottom"] = (DIM_ROW + DIM_STEP) * s
         gap["left"] = (DIM_ROW + DIM_STEP) * s
-    elif _has_clusters(sheet, s):
-        # Place pour coter l'écart des perçages groupés (côté opposé).
-        gap["top"] = (DIM_ROW + 5.0) * s
-        gap["right"] = (DIM_ROW + 5.0) * s
+    else:
+        # Rangées de la chaîne étagée + cote hors tout + marge avant la tranche.
+        nx, ny = _face_rows(sheet, s)
+        gap["bottom"] = (DIM_ROW + (nx - 1) * ROW_STEP + DIM_STEP + 7.0) * s
+        gap["left"] = (DIM_ROW + (ny - 1) * ROW_STEP + DIM_STEP + 7.0) * s
     return td, sides, gap
 
 
@@ -314,10 +333,14 @@ def _extents(sheet: _Sheet, s: float):
     for k, v in sides.items():
         if not v["holes"]:
             out[k] = 0.0
-        elif k in ("left", "right"):
-            out[k] = (DIM_ROW + DIM_STEP + CALLOUT_TEXT_W) * s
+            continue
+        n = _tranche_rows(sheet, v, k, s)
+        ngroups = len({h.get("diam_str", "") for h in v["holes"]})
+        chain = DIM_ROW + (n - 1) * ROW_STEP
+        if k in ("left", "right"):
+            out[k] = (chain + DIM_STEP + CALLOUT_TEXT_W) * s
         else:
-            out[k] = (DIM_ROW + 2 * DIM_STEP) * s
+            out[k] = (chain + DIM_STEP * (1 + ngroups)) * s
     top_callouts = (CALLOUT_ROW + 4.0) * s if sheet.face_holes() else 0.0
     minx = -(gap["left"] + td + out["left"] + 6 * s)
     maxx = sheet.Wd + gap["right"] + td + out["right"] + 6 * s
@@ -394,14 +417,18 @@ class _Drawer:
         d.render()
 
     def chain(self, positions: List[float], axis: str, edge_coord: float, base_coord: float,
-              lo: float, hi: float):
-        """Chaîne de cotes du bord lo au bord hi en passant par chaque position."""
-        pts = _unique_sorted([lo] + [p for p in positions if lo - 0.05 <= p <= hi + 0.05] + [hi])
-        for a, b in zip(pts, pts[1:]):
+              lo: float, hi: float, direction: float = -1.0) -> int:
+        """Chaîne de cotes du bord lo au bord hi en passant par chaque position,
+        étagée vers l'extérieur (direction -1 : vers le bas / la gauche).
+        Retourne le nombre de rangées utilisées."""
+        segs, nrows = _stagger(positions, lo, hi, self.s)
+        for a, b, r in segs:
+            base = base_coord + direction * r * ROW_STEP * self.s
             if axis == "x":
-                self.dim((a, edge_coord), (b, edge_coord), "x", base_coord)
+                self.dim((a, edge_coord), (b, edge_coord), "x", base)
             else:
-                self.dim((edge_coord, a), (edge_coord, b), "y", base_coord)
+                self.dim((edge_coord, a), (edge_coord, b), "y", base)
+        return nrows
 
     def triangle(self, apex, direction, filled):
         """Triangle de repère : pointe sur le bord, orientée vers l'extérieur."""
@@ -481,15 +508,16 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         # Axe des perçages dans l'épaisseur : à l'autre bout de la tranche que
         # la cote d'épaisseur, pour ne pas les superposer.
         if side == "bottom":
-            D.chain(positions, "x", y0, y0 - DIM_ROW * s, 0, Wd)
+            nr = D.chain(positions, "x", y0, y0 - DIM_ROW * s, 0, Wd, -1)
             D.dim((Wd, cy_mid), (Wd, y1), "y", Wd + 6 * s, text=_fmt(sheet.T / 2.0))
         elif side == "top":
-            D.chain(positions, "x", y1, y1 + DIM_ROW * s, 0, Wd)
+            nr = D.chain(positions, "x", y1, y1 + DIM_ROW * s, 0, Wd, +1)
         elif side == "left":
-            D.chain(positions, "y", x0, x0 - DIM_ROW * s, 0, Hd)
+            nr = D.chain(positions, "y", x0, x0 - DIM_ROW * s, 0, Hd, -1)
             D.dim((x0, 0), (cx_mid, 0), "x", -6 * s, text=_fmt(sheet.T / 2.0))
         else:
-            D.chain(positions, "y", x1, x1 + DIM_ROW * s, 0, Hd)
+            nr = D.chain(positions, "y", x1, x1 + DIM_ROW * s, 0, Hd, +1)
+        extra = (nr - 1) * ROW_STEP
         # Repère du type de perçage de tranche, à l'extérieur de la chaîne de cotes.
         groups = {}
         for h in info["holes"]:
@@ -497,14 +525,14 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         for k, (ds, hs) in enumerate(groups.items()):
             px, py = sheet.edge_point(edge, hs[0]["_t"])
             if side == "bottom":
-                D.callout((px, cy_mid), (px + 4 * s, y0 - (DIM_ROW + DIM_STEP * (1 + k)) * s), _hole_label(ds), len(hs))
+                D.callout((px, cy_mid), (px + 4 * s, y0 - (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), _hole_label(ds), len(hs))
             elif side == "top":
-                D.callout((px, cy_mid), (px + 4 * s, y1 + (DIM_ROW + DIM_STEP * (1 + k)) * s), _hole_label(ds), len(hs))
+                D.callout((px, cy_mid), (px + 4 * s, y1 + (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), _hole_label(ds), len(hs))
             elif side == "left":
-                D.callout((cx_mid, py), (x0 - (DIM_ROW + DIM_STEP) * s, py + 4 * s + k * DIM_STEP * s),
+                D.callout((cx_mid, py), (x0 - (DIM_ROW + extra + DIM_STEP) * s, py + 4 * s + k * DIM_STEP * s),
                           _hole_label(ds), len(hs), to_left=True)
             else:
-                D.callout((cx_mid, py), (x1 + (DIM_ROW + DIM_STEP) * s, py + 4 * s + k * DIM_STEP * s),
+                D.callout((cx_mid, py), (x1 + (DIM_ROW + extra + DIM_STEP) * s, py + 4 * s + k * DIM_STEP * s),
                           _hole_label(ds), len(hs))
 
     # --- Perçages en face --------------------------------------------------------
@@ -512,32 +540,9 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
     for h in face:
         D.circle(h["_x"], h["_y"], _hole_diameter(h.get("diam_str"), 5.0))
     if face:
-        # Chaîne principale sur le centre de chaque groupe de perçages ; l'écart
-        # interne du premier groupe est coté une fois, de l'autre côté de la face.
-        cx = _clusters(face, "_x", s)
-        cy = _clusters(face, "_y", s)
-        D.chain([c for c, _ in cx], "x", 0, -DIM_ROW * s, 0, Wd)
-        D.chain([c for c, _ in cy], "y", 0, -DIM_ROW * s, 0, Hd)
-        def _group_dims(grp, axis):
-            steps = [b - a for a, b in zip(grp, grp[1:])]
-            # Pas réguliers : une seule cote « n x pas » au lieu de textes empilés.
-            if len(steps) > 1 and max(steps) - min(steps) < 0.05:
-                txt = f"{len(steps)}x{_fmt(steps[0])}"
-                pairs = [(grp[0], grp[-1], txt)]
-            else:
-                pairs = [(a, b, None) for a, b in zip(grp, grp[1:])]
-            for a, b, txt in pairs:
-                if axis == "x":
-                    D.dim((a, Hd), (b, Hd), "x", Hd + DIM_ROW * s, text=txt)
-                else:
-                    D.dim((Wd, a), (Wd, b), "y", Wd + DIM_ROW * s, text=txt)
-
-        grp = next((m for _, m in cx if len(m) > 1), None)
-        if grp:
-            _group_dims(grp, "x")
-        grp = next((m for _, m in cy if len(m) > 1), None)
-        if grp:
-            _group_dims(grp, "y")
+        # Une chaîne par axe, étagée pour que les textes ne se chevauchent pas.
+        nx = D.chain([h["_x"] for h in face], "x", 0, -DIM_ROW * s, 0, Wd, -1)
+        ny = D.chain([h["_y"] for h in face], "y", 0, -DIM_ROW * s, 0, Hd, -1)
         groups = {}
         for h in face:
             groups.setdefault(h.get("diam_str", ""), []).append(h)
@@ -560,9 +565,12 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
             kx = max(ref["_x"], x_free)
             D.callout((ref["_x"], ref["_y"]), (kx, y_row), label, n)
             x_free = kx + 3 * s + text_w + 4 * s
-    row_overall = -(DIM_ROW + DIM_STEP) * s if face else -DIM_ROW * s
-    D.dim((0, 0), (Wd, 0), "x", row_overall)
-    D.dim((0, 0), (0, Hd), "y", row_overall)
+    if face:
+        D.dim((0, 0), (Wd, 0), "x", -(DIM_ROW + (nx - 1) * ROW_STEP + DIM_STEP) * s)
+        D.dim((0, 0), (0, Hd), "y", -(DIM_ROW + (ny - 1) * ROW_STEP + DIM_STEP) * s)
+    else:
+        D.dim((0, 0), (Wd, 0), "x", -DIM_ROW * s)
+        D.dim((0, 0), (0, Hd), "y", -DIM_ROW * s)
 
     # --- Découpe de poignée / passe-doigt ----------------------------------------
     cut = _cutout_props(sheet.plan.get("cutout"))

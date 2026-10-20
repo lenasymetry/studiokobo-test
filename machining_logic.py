@@ -517,74 +517,50 @@ def calculate_back_panel_holes(W_back, H_back, cabinet):
             holes.append({'type': 'tourillon', 'x': x_rel, 'y': (y_start + y_end) / 2.0, 'diam_str': "⌀8/22"})
             continue
 
-        # Espacement d'environ 100 mm, ajusté pour tomber juste aux extrémités.
+        # Espacement selon la hauteur du meuble : ~500 mm au-delà de 1,50 m,
+        # ~300 mm entre 1 m et 1,50 m, ~100 mm en dessous ; ajusté pour tomber
+        # juste aux extrémités.
+        if H_raw > 1500.0:
+            target_spacing = 500.0
+        elif H_raw > 1000.0:
+            target_spacing = 300.0
+        else:
+            target_spacing = 100.0
         available_space = y_end - y_start
-        num_intervals = max(1, math.floor(available_space / 100.0))
+        num_intervals = max(1, round(available_space / target_spacing))
         spacing = available_space / num_intervals
         for i in range(num_intervals + 1):
             holes.append({'type': 'tourillon', 'x': x_rel, 'y': y_start + i * spacing, 'diam_str': "⌀8/22"})
 
-    # Trous de vis sur tout le pourtour du panneau arrière
-    # - 8 mm du bord
-    # - Espacement :
-    #   * ~300 mm si la longueur du bord >= 300 mm
-    #   * ~100 mm si la longueur du bord < 300 mm
+    return holes
+
+
+def calculate_back_panel_edge_holes(W_back, H_back):
+    """Perçages du pourtour du panneau arrière, sur ses TRANCHES.
+
+    Retourne (trous des tranches haut/bas, trous des tranches gauche/droite),
+    positions mesurées le long de chaque tranche :
+    - premier et dernier à 8 mm des angles ;
+    - espacement ~300 mm si le bord fait au moins 300 mm, ~100 mm sinon.
+    """
     import math
     edge_offset = 8.0
     screw_diam = "⌀5/12"
 
-    # Bords haut et bas (trous répartis en X)
-    if W_back > 2 * edge_offset:
-        x_start = edge_offset
-        x_end = W_back - edge_offset
-        available = x_end - x_start
-        target_spacing = 100.0 if W_back < 300.0 else 300.0
-        num_intervals = max(1, math.floor(available / target_spacing))
-        spacing = available / num_intervals
+    def _positions(length):
+        if length <= 2 * edge_offset:
+            return [length / 2.0]
+        start, end = edge_offset, length - edge_offset
+        target = 100.0 if length < 300.0 else 300.0
+        n = max(1, math.floor((end - start) / target))
+        step = (end - start) / n
+        return [start + i * step for i in range(n + 1)]
 
-        # Bas (y = 8)
-        y_bottom = edge_offset
-        holes.append({'type': 'vis', 'x': x_start, 'y': y_bottom, 'diam_str': screw_diam})
-        for i in range(1, num_intervals):
-            x = x_start + i * spacing
-            holes.append({'type': 'vis', 'x': x, 'y': y_bottom, 'diam_str': screw_diam})
-        holes.append({'type': 'vis', 'x': x_end, 'y': y_bottom, 'diam_str': screw_diam})
-
-        # Haut (y = H_back - 8)
-        y_top = H_back - edge_offset
-        holes.append({'type': 'vis', 'x': x_start, 'y': y_top, 'diam_str': screw_diam})
-        for i in range(1, num_intervals):
-            x = x_start + i * spacing
-            holes.append({'type': 'vis', 'x': x, 'y': y_top, 'diam_str': screw_diam})
-        holes.append({'type': 'vis', 'x': x_end, 'y': y_top, 'diam_str': screw_diam})
-
-    # Bords gauche et droit (trous répartis en Y)
-    if H_back > 2 * edge_offset:
-        y_start = edge_offset
-        y_end = H_back - edge_offset
-        available_y = y_end - y_start
-        target_spacing_y = 100.0 if H_back < 300.0 else 300.0
-        num_intervals_y = max(1, math.floor(available_y / target_spacing_y))
-        spacing_y = available_y / num_intervals_y
-
-        x_left = edge_offset
-        x_right = W_back - edge_offset
-
-        # Gauche (x = 8)
-        holes.append({'type': 'vis', 'x': x_left, 'y': y_start, 'diam_str': screw_diam})
-        for i in range(1, num_intervals_y):
-            y = y_start + i * spacing_y
-            holes.append({'type': 'vis', 'x': x_left, 'y': y, 'diam_str': screw_diam})
-        holes.append({'type': 'vis', 'x': x_left, 'y': y_end, 'diam_str': screw_diam})
-
-        # Droit (x = W_back - 8)
-        holes.append({'type': 'vis', 'x': x_right, 'y': y_start, 'diam_str': screw_diam})
-        for i in range(1, num_intervals_y):
-            y = y_start + i * spacing_y
-            holes.append({'type': 'vis', 'x': x_right, 'y': y, 'diam_str': screw_diam})
-        holes.append({'type': 'vis', 'x': x_right, 'y': y_end, 'diam_str': screw_diam})
-
-    return holes
+    # Tranches haut/bas : position le long de la largeur (x).
+    long_holes = [{'type': 'vis', 'x': x, 'y': 0.0, 'diam_str': screw_diam} for x in _positions(float(W_back))]
+    # Tranches gauche/droite : position le long de la hauteur (y).
+    side_holes = [{'type': 'vis', 'x': 0.0, 'y': y, 'diam_str': screw_diam} for y in _positions(float(H_back))]
+    return long_holes, side_holes
 
 def detect_collisions(cabinet):
     """Détecte les collisions entre éléments."""
