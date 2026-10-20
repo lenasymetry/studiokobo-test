@@ -857,6 +857,59 @@ def _redistribute_hinge_y_positions_with_edge_offset(hinge_y_positions, door_hei
     step = span / float(n - 1)
     return [y_min + (i * step) for i in range(n)]
 
+def _door_leaf_hinge_rows(door_props, door_height):
+    """[(montant 'mg'|'md', y depuis le bas du vantail)] — mêmes positions que
+    les cuvettes de la feuille de porte."""
+    y_h = _compute_door_hinge_y_positions(door_height, door_props)
+    if door_props.get('door_type', 'single') == 'double':
+        if door_props.get('door_model') == 'floor_length':
+            y_left = _redistribute_hinge_y_positions_with_edge_offset(
+                y_h, door_height, edge='min', extra_offset_mm=_cache_pied_hinge_offset())
+            y_right = _redistribute_hinge_y_positions_with_edge_offset(
+                y_h, door_height, edge='max', extra_offset_mm=_cache_pied_hinge_offset())
+        else:
+            y_left = y_right = y_h
+        return [('mg', y) for y in y_left] + [('md', y) for y in y_right]
+    side = 'mg' if door_props.get('door_opening') == 'left' else 'md'
+    return [(side, y) for y in y_h]
+
+
+def _door_hinge_rows_for_cabinet(scene, cab_idx, cab):
+    """Embases de charnières à percer sur les montants de ce caisson.
+
+    Retourne [(montant 'mg'|'md', y depuis le bas du montant)] pour sa propre
+    porte et, s'il est recouvert, pour la porte commune du caisson du dessous.
+    Seules les charnières situées dans la hauteur du caisson sont gardées.
+    """
+    has_feet = bool(st.session_state.get('has_feet', False))
+    foot_h = st.session_state.get('foot_height', 0.0)
+    H_own = float(cab.get('dims', {}).get('H_raw', 0.0) or 0.0)
+    rows = []
+
+    def _rows_from(door_cab, base_offset):
+        dp = door_cab.get('door_props', {}) or {}
+        span = get_cabinet_door_height_raw(door_cab)
+        dH, dz = get_door_vertical_geometry(span, dp, has_feet, foot_h)
+        for side, y in _door_leaf_hinge_rows(dp, dH):
+            y_m = dz + y - base_offset
+            # Charnière pile à la jonction : percée une seule fois, sur le
+            # caisson du dessous (porteur de la porte).
+            lower_bound = 0.5 if base_offset > 0 else -0.5
+            if lower_bound < y_m <= H_own + 0.5 or (base_offset == 0 and abs(y_m + 0.5) < 1e-9):
+                rows.append((side, y_m))
+
+    if (cab.get('door_props') or {}).get('has_door') and not cabinet_door_is_hidden(cab):
+        _rows_from(cab, 0.0)
+    if cabinet_door_is_hidden(cab):
+        parent_idx = cab.get('parent_index')
+        if parent_idx is not None and 0 <= parent_idx < len(scene):
+            parent = scene[parent_idx]
+            H_parent = float(parent.get('dims', {}).get('H_raw', 0.0) or 0.0)
+            # Le caisson du dessus commence au sommet du caisson porteur.
+            _rows_from(parent, H_parent)
+    return rows
+
+
 def _imported_door_hinge_edges(imp_door):
     """[(x du bord côté charnières, côté de la porte par rapport à ce bord)].
 
@@ -1417,35 +1470,19 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 plans.append((shelf_title_with_qty, shelf_data['L'], shelf_data['W'], shelf_data['T'], shelf_data['ch'], shelf_data['fh'], shelf_data['t_long_h'], shelf_data['t_cote_h'], shelf_data['cut']))
                 plan_quantities[shelf_title_with_qty] = shelf_data['quantity']
 
-            # --- PORTE (MÊME LOGIQUE QUE 2.PY) ---
-            if cab['door_props']['has_door']:
-                # Utiliser les positions personnalisées si le mode est 'custom'
-                door_props = cab['door_props']
-                if door_props.get('hinge_mode') == 'custom' and door_props.get('custom_hinge_positions'):
-                    yh = get_hinge_y_positions(h_side, custom_positions=door_props['custom_hinge_positions'])
+            # --- PORTE : embases de charnières sur les montants ---
+            # Hauteurs = celles des cuvettes de la porte (feuille de porte),
+            # ramenées au montant. Une porte commune à plusieurs caissons
+            # superposés perce chaque caisson sur la partie qu'elle couvre.
+            scene_all = st.session_state.get('scene_cabinets') or cabinets_to_process
+            for side, y in _door_hinge_rows_for_cabinet(scene_all, cab_idx, cab):
+                if side == 'mg':
+                    xs, dest = (20.0, 52.0), holes_mg
                 else:
-                    yh = get_hinge_y_positions(h_side)
-                door_type = cab['door_props'].get('door_type', 'single')
-                if door_type == 'double':
-                    # Porte double : trous sur les deux montants
-                    # Porte gauche : trous sur montant gauche (x=20.0 et x=52.0 depuis le bord gauche)
-                    # Porte droite : trous sur montant droit (x=20.0 et x=52.0 depuis le bord droit, donc W_mont-20.0 et W_mont-52.0)
-                    for y in yh:
-                        # Trous pour la porte gauche sur montant gauche
-                        holes_mg.append({'type':'vis','x':20.0,'y':y,'diam_str':"⌀5/11.5"})
-                        holes_mg.append({'type':'vis','x':52.0,'y':y,'diam_str':"⌀5/11.5"})
-                        # Trous pour la porte droite sur montant droit
-                        holes_md.append({'type':'vis','x':W_mont-20.0,'y':y,'diam_str':"⌀5/11.5"})
-                        holes_md.append({'type':'vis','x':W_mont-52.0,'y':y,'diam_str':"⌀5/11.5"})
-                else:
-                    # Porte simple : trous selon le sens d'ouverture
-                    for y in yh:
-                        if cab['door_props']['door_opening']=='left':
-                            holes_mg.append({'type':'vis','x':20.0,'y':y,'diam_str':"⌀5/11.5"})
-                            holes_mg.append({'type':'vis','x':52.0,'y':y,'diam_str':"⌀5/11.5"})
-                        else:
-                            holes_md.append({'type':'vis','x':20.0,'y':y,'diam_str':"⌀5/11.5"})
-                            holes_md.append({'type':'vis','x':52.0,'y':y,'diam_str':"⌀5/11.5"})
+                    # Montant droit : l'avant est du côté x = W_mont.
+                    xs, dest = (W_mont - 20.0, W_mont - 52.0), holes_md
+                for x in xs:
+                    dest.append({'type': 'vis', 'x': x, 'y': y, 'diam_str': "⌀5/11.5"})
 
             # --- PORTES IMPORTÉES (JSON web) : embases de charnières ---
             # Chaque charnière se visse sur la pièce verticale du côté charnières
