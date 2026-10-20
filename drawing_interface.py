@@ -5,7 +5,7 @@ import base64
 import os
 import io
 
-from machining_logic import is_drawer_slide_hole, merge_drawer_panel_holes
+from machining_logic import is_drawer_slide_hole, merge_drawer_panel_holes, apply_face_hole_depths
 
 try:
     from PIL import Image
@@ -1088,6 +1088,7 @@ def draw_machining_view_pro_final(panel_name, L, W, T, unit_str, project_info,
     # Réinitialiser le tracker d'annotations pour éviter les doublons entre les appels
     global _annotation_tracker
     _annotation_tracker = set()
+    face_holes_list = apply_face_hole_depths(panel_name, face_holes_list)
     
     fig = go.Figure()
     

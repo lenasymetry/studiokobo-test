@@ -808,3 +808,30 @@ def get_vertical_shelf_tranche_holes(W_mont, vs_th):
                 holes.append({'type': 'tourillon', 'x': vs_th/2, 'y': y_pos, 'diam_str': "⌀8/22"})
     
     return holes
+
+
+def apply_face_hole_depths(panel_name, face_holes):
+    """Profondeurs imposées des perçages de FACE (pas des tranches).
+
+    - Porte : cuvette de charnière ⌀35 et ses 2 vis ⌀8 -> profondeur 13.
+    - Toute autre pièce : tout trou ⌀8 -> profondeur 14.
+    Retourne une nouvelle liste (les dictionnaires d'origine ne sont pas modifiés).
+    """
+    import re as _re
+    name = str(panel_name or "").lower()
+    is_door = "porte" in name or "door" in name
+    out = []
+    for h in face_holes or []:
+        h = dict(h)
+        raw = str(h.get("diam_str", ""))
+        m = _re.search(r"(\d+(?:[.,]\d+)?)", raw)
+        diam = float(m.group(1).replace(",", ".")) if m else None
+        if diam is not None:
+            if is_door and abs(diam - 35.0) < 0.01:
+                h["diam_str"] = "⌀35/13"
+            elif is_door and abs(diam - 8.0) < 0.01:
+                h["diam_str"] = "⌀8/13"
+            elif not is_door and abs(diam - 8.0) < 0.01:
+                h["diam_str"] = "⌀8/14"
+        out.append(h)
+    return out
