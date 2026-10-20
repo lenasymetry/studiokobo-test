@@ -18,7 +18,7 @@ from xml.dom import minidom
 from typing import List, Tuple, Dict
 
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
-                             get_door_vertical_geometry)
+                             get_door_vertical_geometry, door_zone_span)
 
 
 # ---------------------------------------------------------------------------
@@ -506,35 +506,41 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
             is_ajar = str(door_mode).lower() == "ajar"
             ajar_angle = abs(float(door_angle_deg)) if is_ajar else 0.0
 
+            # Ouverture couverte : colonne entre deux montants, ou tout le caisson.
+            _span = door_zone_span(cabinet)
+            if _span is not None:
+                ox_d, L_d = ox + _span[0], _span[1] - _span[0]
+            else:
+                ox_d, L_d = ox, L
             if dp.get("door_type", "single") == "single":
                 opening = str(dp.get("door_opening", "right")).lower()
                 if opening == "left":
                     rot = -ajar_angle
-                    pivot_x = ox + gap
+                    pivot_x = ox_d + gap
                 else:
                     rot = ajar_angle
-                    pivot_x = ox + L - gap
+                    pivot_x = ox_d + L_d - gap
                 add_panel(cab_node,
                           f"Porte – {cab_label}",
-                          ox + gap, d_y, d_z,
-                          L - 2 * gap, door_th, d_H,
+                          ox_d + gap, d_y, d_z,
+                          L_d - 2 * gap, door_th, d_H,
                           mat="mat_door",
                           rotation_deg=rot,
                           rotation_pivot_xy=(pivot_x, d_y))
             else:
-                half = (L - 2 * gap) / 2.0
+                half = (L_d - 2 * gap) / 2.0
                 add_panel(cab_node,
                           f"Porte Gauche – {cab_label}",
-                          ox + gap, d_y, d_z,
+                          ox_d + gap, d_y, d_z,
                           half, door_th, d_H, mat="mat_door",
                           rotation_deg=-ajar_angle,
-                          rotation_pivot_xy=(ox + gap, d_y))
+                          rotation_pivot_xy=(ox_d + gap, d_y))
                 add_panel(cab_node,
                           f"Porte Droite – {cab_label}",
-                          ox + gap + half, d_y, d_z,
+                          ox_d + gap + half, d_y, d_z,
                           half, door_th, d_H, mat="mat_door",
                           rotation_deg=ajar_angle,
-                          rotation_pivot_xy=(ox + L - gap, d_y))
+                          rotation_pivot_xy=(ox_d + L_d - gap, d_y))
 
         # ── Façades de tiroir ───────────────────────────────────────────
         for j, drp in enumerate(cabinet.get("drawers", [])):

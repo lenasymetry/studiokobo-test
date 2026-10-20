@@ -953,3 +953,32 @@ def drawer_piece_dims(cabinet, drp, zones):
         'bottom_w': bottom_w, 'bottom_d': bottom_d,
         'inner_t': float(drp.get('inner_thickness', 16.0)),
     }
+
+
+def door_columns(cabinet):
+    """Colonnes où poser une porte : entre deux montants (principaux ou
+    secondaires), sur toute la hauteur. [{'x_min', 'x_max'}] en mm, repère
+    caisson (faces intérieures des montants)."""
+    return [{'x_min': float(z['x_min']), 'x_max': float(z['x_max'])}
+            for z in calculate_zones_from_dividers(cabinet)]
+
+
+def door_zone_span(cabinet):
+    """Ouverture couverte par la porte native du caisson : (x_min, x_max) en mm
+    (faces des montants qui la bordent), ou None si la porte couvre tout le caisson."""
+    dp = cabinet.get('door_props', {}) or {}
+    zx = dp.get('zone_x')
+    if isinstance(zx, dict) and zx.get('x_min') is not None and zx.get('x_max') is not None:
+        x0, x1 = float(zx['x_min']), float(zx['x_max'])
+        if x1 > x0:
+            return (x0, x1)
+    # Ancien format : indice dans les zones 2D.
+    zone_id = dp.get('zone_id')
+    if zone_id is not None:
+        try:
+            zones = calculate_all_zones_2d(cabinet)
+        except Exception:
+            zones = []
+        if 0 <= zone_id < len(zones):
+            return (float(zones[zone_id]['x_min']), float(zones[zone_id]['x_max']))
+    return None

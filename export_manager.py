@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -900,13 +900,13 @@ def _door_hinge_positions(door_cab, door_height, door_z_bottom):
 
 
 def _door_leaf_hinge_rows(door_cab, door_height, door_z_bottom):
-    """[(montant 'mg'|'md', y depuis le bas du vantail)] — mêmes positions que
-    les cuvettes de la feuille de porte."""
+    """[(bord de l'ouverture 'left'|'right' côté charnières, y depuis le bas du
+    vantail)] — mêmes positions que les cuvettes de la feuille de porte."""
     dp = door_cab.get('door_props', {}) or {}
     pos = _door_hinge_positions(door_cab, door_height, door_z_bottom)
     if dp.get('door_type', 'single') == 'double':
-        return [('mg', y) for y in pos['left']] + [('md', y) for y in pos['right']]
-    side = 'mg' if dp.get('door_opening') == 'left' else 'md'
+        return [('left', y) for y in pos['left']] + [('right', y) for y in pos['right']]
+    side = 'left' if dp.get('door_opening') == 'left' else 'right'
     return [(side, y) for y in pos['left']]
 
 
@@ -920,19 +920,32 @@ def _door_hinge_rows_for_cabinet(scene, cab_idx, cab):
     has_feet = bool(st.session_state.get('has_feet', False))
     foot_h = st.session_state.get('foot_height', 0.0)
     H_own = float(cab.get('dims', {}).get('H_raw', 0.0) or 0.0)
+    dims_own = cab.get('dims', {}) or {}
+    t_lr_own = float(dims_own.get('t_lr_raw', 19.0))
+    L_own = float(dims_own.get('L_raw', 0.0))
     rows = []
 
     def _rows_from(door_cab, base_offset):
         dp = door_cab.get('door_props', {}) or {}
         span = get_cabinet_door_height_raw(door_cab)
         dH, dz = get_door_vertical_geometry(span, dp, has_feet, foot_h)
-        for side, y in _door_leaf_hinge_rows(door_cab, dH, dz):
+        # Ouverture couverte : colonne entre montants, ou tout le caisson.
+        opening = door_zone_span(door_cab) or (t_lr_own, carcass_piece_dims(cab)['L_eff'] - t_lr_own)
+        for edge, y in _door_leaf_hinge_rows(door_cab, dH, dz):
+            # Panneau qui borde l'ouverture côté charnières (montant principal
+            # ou montant secondaire), face tournée vers la porte.
+            if edge == 'left':
+                target = _hinge_panel_for_edge(cab, opening[0], 'right', t_lr_own, L_own)
+            else:
+                target = _hinge_panel_for_edge(cab, opening[1], 'left', t_lr_own, L_own)
+            if target is None:
+                continue
             y_m = dz + y - base_offset
             # Charnière pile à la jonction : percée une seule fois, sur le
             # caisson du dessous (porteur de la porte).
             lower_bound = 0.5 if base_offset > 0 else -0.5
-            if lower_bound < y_m <= H_own + 0.5 or (base_offset == 0 and abs(y_m + 0.5) < 1e-9):
-                rows.append((side, y_m))
+            if lower_bound < y_m <= H_own + 0.5:
+                rows.append((target, y_m))
 
     if (cab.get('door_props') or {}).get('has_door') and not cabinet_door_is_hidden(cab):
         _rows_from(cab, 0.0)
@@ -1519,12 +1532,16 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             # ramenées au montant. Une porte commune à plusieurs caissons
             # superposés perce chaque caisson sur la partie qu'elle couvre.
             scene_all = st.session_state.get('scene_cabinets') or cabinets_to_process
-            for side, y in _door_hinge_rows_for_cabinet(scene_all, cab_idx, cab):
-                if side == 'mg':
+            for (kind, div_idx), y in _door_hinge_rows_for_cabinet(scene_all, cab_idx, cab):
+                # Embases à 20 et 52 mm de l'avant de la pièce qui les reçoit.
+                if kind == 'mg':
                     xs, dest = (20.0, 52.0), holes_mg
-                else:
-                    # Montant droit : l'avant est du côté x = W_mont.
+                elif kind == 'md':
                     xs, dest = (W_mont - 20.0, W_mont - 52.0), holes_md
+                elif kind == 'div_left':
+                    xs, dest = (W_inner - 20.0, W_inner - 52.0), divider_element_holes_left[div_idx]
+                else:
+                    xs, dest = (20.0, 52.0), divider_element_holes_right[div_idx]
                 for x in xs:
                     dest.append({'type': 'vis', 'x': x, 'y': y, 'diam_str': "⌀5/11.5"})
 
@@ -1791,18 +1808,11 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
 
                 # Largeur = feuille de débit : zone de la porte si assignée,
                 # sinon largeur utile du caisson (fileur déduit).
-                L_eff_door = carcass_piece_dims(cab)['L_eff']
-                door_zone = None
-                if dp.get('zone_id') is not None:
-                    cab_for_door_zones = copy.deepcopy(cab)
-                    cab_for_door_zones['dims']['L_raw'] = L_eff_door
-                    door_zones = calculate_all_zones_2d(cab_for_door_zones)
-                    if dp['zone_id'] < len(door_zones):
-                        door_zone = door_zones[dp['zone_id']]
-                door_span_w = (door_zone['x_max'] - door_zone['x_min']) if door_zone is not None else L_eff_door
+                _door_span = door_zone_span(cab)
+                door_span_w = (_door_span[1] - _door_span[0]) if _door_span is not None else carcass_piece_dims(cab)['L_eff']
 
                 if door_type == 'double':
-                    dW_half = (L_eff_door - (2 * dp['door_gap'])) / 2.0 if door_zone is None else door_span_w - 2 * dp['door_gap']
+                    dW_half = (door_span_w - (2 * dp['door_gap'])) / 2.0
 
                     if dp.get('door_model') == 'floor_length':
                         # Double + cache-pieds: two distinct mirrored variants.

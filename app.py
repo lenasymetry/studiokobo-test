@@ -57,6 +57,8 @@ from machining_logic import (
     format_plinthe_labels,
     carcass_piece_dims,
     drawer_piece_dims,
+    door_columns,
+    door_zone_span,
 )
 from utils import calculate_available_space_between_horizontal_shelves
 
@@ -1261,13 +1263,12 @@ def calculate_all_project_parts():
                 cabinet_has_feet, st.session_state.get('foot_height', 0.0)
             )
             
-            # Vérifier si une zone est assignée
-            zone_id = dp.get('zone_id', None)
-            if zone_id is not None and zone_id < len(zones_for_parts):
-                zone = zones_for_parts[zone_id]
-                dW = (zone['x_max'] - zone['x_min']) - (2 * dp['door_gap'])
-            else:
-                dW = L_eff - (2 * dp['door_gap']) if dp.get('door_type') == 'single' else (L_eff - 2*dp['door_gap'])/2
+            # Porte dans une colonne (entre montants) ou sur tout le caisson.
+            _span = door_zone_span(cabinet)
+            _opening_w = (_span[1] - _span[0]) if _span is not None else L_eff
+            dW = _opening_w - (2 * dp['door_gap'])
+            if dp.get('door_type') != 'single':
+                dW = dW / 2.0
             
             cav, car, cg, cd = get_automatic_edge_banding("Porte")
             porte_ref = f"Porte (C{i})"
@@ -2051,17 +2052,30 @@ with col1:
                             )
 
                     if d_p['has_door']:
-                        # Sélection de zone pour la porte
-                        if len(all_zones_2d) > 1:
-                            current_zone = d_p.get('zone_id', None)
-                            zone_index = zone_options.index(current_zone) if current_zone in zone_options else 0
+                        # Emplacement : tout le caisson, ou une colonne entre deux
+                        # montants (principaux ou secondaires), sur toute la hauteur.
+                        _door_cols = door_columns(selected_cab)
+                        if len(_door_cols) > 1:
+                            _col_opts = [None] + list(range(len(_door_cols)))
+                            _span = door_zone_span(selected_cab)
+                            _cur = None
+                            if _span is not None:
+                                for _ci, _c in enumerate(_door_cols):
+                                    if abs(_c['x_min'] - _span[0]) <= 1.0 and abs(_c['x_max'] - _span[1]) <= 1.0:
+                                        _cur = _ci
+                                        break
                             st.selectbox(
-                                "Zone d'emplacement",
-                                options=zone_options,
-                                index=zone_index,
-                                format_func=lambda x: zone_labels[zone_options.index(x)] if x in zone_options else "Tout le caisson",
+                                "Emplacement de la porte",
+                                options=_col_opts,
+                                index=_col_opts.index(_cur),
+                                format_func=lambda c, cols=_door_cols: (
+                                    "Tout le caisson" if c is None else
+                                    f"Colonne {c + 1} ({cols[c]['x_max'] - cols[c]['x_min']:.0f} mm, "
+                                    f"x {cols[c]['x_min']:.0f} → {cols[c]['x_max']:.0f})"
+                                ),
                                 key=f"door_zone_{idx}",
-                                on_change=lambda: update_selected_cabinet_door('zone_id')
+                                on_change=update_door_column,
+                                args=(idx,),
                             )
                         st.selectbox("Type de porte", options=['single', 'double'], index=0 if d_p.get('door_type')=='single' else 1, format_func=lambda x: 'Simple' if x=='single' else 'Double', key=f"door_type_{idx}", on_change=lambda: update_selected_cabinet_door('door_type'))
                         if d_p.get('door_type')=='single': st.selectbox("Sens d'ouverture", options=['right', 'left'], index=0 if d_p.get('door_opening')=='right' else 1, format_func=lambda x: 'Droite' if x=='right' else 'Gauche', key=f"door_opening_{idx}", on_change=lambda: update_selected_cabinet_door('door_opening'))
@@ -3848,35 +3862,21 @@ with col2:
                 dz = o[2] + _dz_mm * unit_factor
                 rot_angle = 45 if dp.get('door_opening')=='right' else -45
                 
-                # Vérifier si une zone est assignée
-                zone_id = dp.get('zone_id', None)
-                
-                if zone_id is not None and zone_id < len(zones_render_all):
-                    # Porte dans une zone spécifique - strictement limitée à la zone
-                    zone = zones_render_all[zone_id]
-                    zone_x_min_mm = zone['x_min']
-                    zone_x_max_mm = zone['x_max']
-                    zone_x_min_abs = o[0] + (zone_x_min_mm * unit_factor)
-                    zone_x_max_abs = o[0] + (zone_x_max_mm * unit_factor)
-                    zone_width_abs = zone_x_max_abs - zone_x_min_abs
-                    # La porte doit être dans la zone, avec le gap + marge de sécurité
-                    safety_margin_mm = 2.0  # 2mm pour éviter de toucher les montants
-                    safety_margin = safety_margin_mm * unit_factor
-                    dW_zone = zone_width_abs - 2*gap - 2*safety_margin
-                    # Position de départ de la porte dans la zone
-                    door_x_start = zone_x_min_abs + gap + safety_margin
-                    pivot_x = zone_x_max_abs - gap - safety_margin if dp.get('door_opening')=='right' else zone_x_min_abs + gap + safety_margin
-                    if dW_zone > 0:
-                        fig3d.add_trace(cuboid_mesh_for(dW_zone, thk, dH, (door_x_start, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte {i}", rotation_angle=rot_angle, rotation_axis='z', rotation_pivot=(pivot_x, dy, dz)))
+                # Ouverture couverte : une colonne entre deux montants (principaux
+                # ou secondaires), ou tout le caisson.
+                _span = door_zone_span(cab_render)
+                if _span is not None:
+                    ox_d = o[0] + _span[0] * unit_factor
+                    L_d = (_span[1] - _span[0]) * unit_factor
                 else:
-                    # Porte sur tout le caisson
-                    if dp.get('door_type') == 'single':
-                        pivot_x = o[0] + L - gap if dp.get('door_opening')=='right' else o[0] + gap
-                        fig3d.add_trace(cuboid_mesh_for(L-2*gap, thk, dH, (o[0]+gap, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte {i}", rotation_angle=rot_angle, rotation_axis='z', rotation_pivot=(pivot_x, dy, dz)))
-                    else:
-                        dl_half = (L-2*gap)/2; pivot_g = o[0] + gap; pivot_d = o[0] + L - gap
-                        fig3d.add_trace(cuboid_mesh_for(dl_half, thk, dH, (o[0]+gap, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte G {i}", rotation_angle=-45, rotation_axis='z', rotation_pivot=(pivot_g, dy, dz)))
-                        fig3d.add_trace(cuboid_mesh_for(dl_half, thk, dH, (o[0]+L-gap-dl_half, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte D {i}", rotation_angle=45, rotation_axis='z', rotation_pivot=(pivot_d, dy, dz)))
+                    ox_d, L_d = o[0], L
+                if dp.get('door_type') == 'single':
+                    pivot_x = ox_d + L_d - gap if dp.get('door_opening')=='right' else ox_d + gap
+                    fig3d.add_trace(cuboid_mesh_for(L_d-2*gap, thk, dH, (ox_d+gap, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte {i}", rotation_angle=rot_angle, rotation_axis='z', rotation_pivot=(pivot_x, dy, dz)))
+                else:
+                    dl_half = (L_d-2*gap)/2; pivot_g = ox_d + gap; pivot_d = ox_d + L_d - gap
+                    fig3d.add_trace(cuboid_mesh_for(dl_half, thk, dH, (ox_d+gap, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte G {i}", rotation_angle=-45, rotation_axis='z', rotation_pivot=(pivot_g, dy, dz)))
+                    fig3d.add_trace(cuboid_mesh_for(dl_half, thk, dH, (ox_d+L_d-gap-dl_half, dy, dz), color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Porte D {i}", rotation_angle=45, rotation_axis='z', rotation_pivot=(pivot_d, dy, dz)))
 
                 # ── Fileur ─────────────────────────────────────────────
                 fileur_w_mm = float(dp.get('fileur_width', 0))

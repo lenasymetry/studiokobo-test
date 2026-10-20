@@ -27,7 +27,7 @@ from matplotlib.colors import to_rgba
 from PIL import Image, ImageDraw
 from machining_logic import (calculate_all_zones_2d, get_cabinet_door_height_raw,
                              cabinet_door_is_hidden, get_door_vertical_geometry,
-                             get_cache_pied_drop)
+                             get_cache_pied_drop, door_zone_span)
 from project_definitions import get_joue_dimensions
 
 # Résolution du rendu 3D matriciel (pixels par pouce de la zone de vue).
@@ -570,10 +570,12 @@ def _cabinet_vertices(cab: Dict, origin=(0.0, 0.0, 0.0)) -> Dict[str, tuple]:
         door_z_bot = oz + door_dz
         dtype = dp.get("door_type", "single")
 
+        _span = door_zone_span(cab)
+        ox_d, L_d = (ox + _span[0], _span[1] - _span[0]) if _span is not None else (ox, L)
         if dtype == "single":
             opening = dp.get("door_opening", "right")
             rot_angle = 120.0 if opening == "right" else -90.0
-            x_left, x_right = ox + gap, ox + L - gap
+            x_left, x_right = ox_d + gap, ox_d + L_d - gap
             pivot_x = x_right if opening == "right" else x_left
             rotated = _rotate_points(
                 [(x_left, oy, door_z_bot), (x_right, oy, door_z_bot), (x_left, oy, door_z_bot + door_h)],
@@ -581,8 +583,8 @@ def _cabinet_vertices(cab: Dict, origin=(0.0, 0.0, 0.0)) -> Dict[str, tuple]:
             )
             v["porte_bas_gauche"], v["porte_bas_droit"], v["porte_haut_gauche"] = rotated
         else:
-            dl_half = (L - 2.0 * gap) / 2.0
-            pivot_g, pivot_d = ox + gap, ox + L - gap
+            dl_half = (L_d - 2.0 * gap) / 2.0
+            pivot_g, pivot_d = ox_d + gap, ox_d + L_d - gap
             rotated_g = _rotate_points(
                 [(pivot_g, oy, door_z_bot), (pivot_g + dl_half, oy, door_z_bot), (pivot_g, oy, door_z_bot + door_h)],
                 -90.0, "z", (pivot_g, oy, door_z_bot),
@@ -818,80 +820,60 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
         # quasi invisible sur le rendu — voir _view_vector/_backface_set.
         rot_angle = 120.0 if dp.get("door_opening") == "right" else -90.0
 
-        zone_id = dp.get("zone_id", None)
-        if zone_id is not None and zone_id < len(zones_render_all):
-            zone = zones_render_all[zone_id]
-            zone_x_min = rox + float(zone["x_min"])
-            zone_x_max = rox + float(zone["x_max"])
-            zone_w = zone_x_max - zone_x_min
-            safety = 2.0
-            dW_zone = zone_w - 2.0 * gap - 2.0 * safety
-            door_x_start = zone_x_min + gap + safety
-            pivot_x = zone_x_max - gap - safety if dp.get("door_opening") == "right" else zone_x_min + gap + safety
-            if dW_zone > 0.0:
-                _add_box(
-                    boxes,
-                    door_x_start,
-                    dy,
-                    dz,
-                    dW_zone,
-                    dth_d,
-                    dH,
-                    alpha=0.50,
-                    skip=bf_skip,
-                    rotation_angle=rot_angle,
-                    rotation_axis="z",
-                    rotation_pivot=(pivot_x, dy, dz),
-                )
+        # Ouverture couverte : colonne entre deux montants, ou tout le caisson.
+        _span = door_zone_span(cab)
+        if _span is not None:
+            ox_d, L_d = rox + _span[0], _span[1] - _span[0]
         else:
-            if dp.get("door_type") == "single":
-                pivot_x = rox + render_L - gap if dp.get("door_opening") == "right" else rox + gap
-                _add_box(
-                    boxes,
-                    rox + gap,
-                    dy,
-                    dz,
-                    render_L - 2.0 * gap,
-                    dth_d,
-                    dH,
-                    alpha=0.50,
-                    skip=bf_skip,
-                    rotation_angle=rot_angle,
-                    rotation_axis="z",
-                    rotation_pivot=(pivot_x, dy, dz),
-                )
-            else:
-                dl_half = (render_L - 2.0 * gap) / 2.0
-                pivot_g = rox + gap
-                pivot_d = rox + render_L - gap
-                _add_box(
-                    boxes,
-                    rox + gap,
-                    dy,
-                    dz,
-                    dl_half,
-                    dth_d,
-                    dH,
-                    alpha=0.50,
-                    skip=bf_skip,
-                    rotation_angle=-90.0,
-                    rotation_axis="z",
-                    rotation_pivot=(pivot_g, dy, dz),
-                )
-                _add_box(
-                    boxes,
-                    rox + render_L - gap - dl_half,
-                    dy,
-                    dz,
-                    dl_half,
-                    dth_d,
-                    dH,
-                    alpha=0.50,
-                    skip=bf_skip,
-                    rotation_angle=120.0,
-                    rotation_axis="z",
-                    rotation_pivot=(pivot_d, dy, dz),
-                )
+            ox_d, L_d = rox, render_L
+        if dp.get("door_type") == "single":
+            pivot_x = ox_d + L_d - gap if dp.get("door_opening") == "right" else ox_d + gap
+            _add_box(
+                boxes,
+                ox_d + gap,
+                dy,
+                dz,
+                L_d - 2.0 * gap,
+                dth_d,
+                dH,
+                alpha=0.50,
+                skip=bf_skip,
+                rotation_angle=rot_angle,
+                rotation_axis="z",
+                rotation_pivot=(pivot_x, dy, dz),
+            )
+        else:
+            dl_half = (L_d - 2.0 * gap) / 2.0
+            pivot_g = ox_d + gap
+            pivot_d = ox_d + L_d - gap
+            _add_box(
+                boxes,
+                ox_d + gap,
+                dy,
+                dz,
+                dl_half,
+                dth_d,
+                dH,
+                alpha=0.50,
+                skip=bf_skip,
+                rotation_angle=-90.0,
+                rotation_axis="z",
+                rotation_pivot=(pivot_g, dy, dz),
+            )
+            _add_box(
+                boxes,
+                ox_d + L_d - gap - dl_half,
+                dy,
+                dz,
+                dl_half,
+                dth_d,
+                dH,
+                alpha=0.50,
+                skip=bf_skip,
+                rotation_angle=120.0,
+                rotation_axis="z",
+                rotation_pivot=(pivot_d, dy, dz),
+            )
 
         # Fileur en facade
         if fileur_w > 0.0:
@@ -1145,13 +1127,8 @@ def _description_lines(cab: Dict, label: str) -> List[str]:
             bool(cab.get("has_feet", False)), cab.get("foot_height", 0.0)
         )
 
-        zone_id = dp.get("zone_id", None)
-        if zone_id is not None and zone_id < len(zones_all):
-            zone = zones_all[zone_id]
-            zone_w = float(zone["x_max"]) - float(zone["x_min"])
-            avail_w = zone_w - 2.0 * gap - 4.0  # même marge de sécurité que le rendu
-        else:
-            avail_w = L_eff - 2.0 * gap
+        _span = door_zone_span(cab)
+        avail_w = ((_span[1] - _span[0]) if _span is not None else L_eff) - 2.0 * gap
         avail_w = max(0.0, avail_w)
 
         lines.append("PORTE" if dtype == "single" else "PORTES")

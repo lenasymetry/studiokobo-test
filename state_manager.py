@@ -1589,6 +1589,24 @@ def update_selected_cabinet_door(key):
         if key == 'has_door' and st.session_state[widget_key] is True:
             if 'drawer_props' in cabinet: cabinet['drawer_props']['has_drawer'] = False
 
+def update_door_column(cab_idx):
+    """Emplacement de la porte : tout le caisson ou une colonne entre montants."""
+    from machining_logic import door_columns
+    scene = st.session_state.get('scene_cabinets', [])
+    if not (0 <= cab_idx < len(scene)):
+        return
+    cabinet = scene[cab_idx]
+    dp = cabinet.setdefault('door_props', get_default_door_props_19())
+    choice = st.session_state.get(f"door_zone_{cab_idx}")
+    cols = door_columns(cabinet)
+    if choice is None or not (0 <= choice < len(cols)):
+        dp['zone_x'] = None
+    else:
+        dp['zone_x'] = {'x_min': cols[choice]['x_min'], 'x_max': cols[choice]['x_max']}
+    # L'ancien indice de zone 2D n'est plus utilisé pour les portes.
+    dp['zone_id'] = None
+
+
 def update_selected_cabinet_drawer(key):
     # Ancien système (compatibilité) - à supprimer progressivement
     cabinet = get_selected_cabinet()
