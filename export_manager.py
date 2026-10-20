@@ -857,21 +857,56 @@ def _redistribute_hinge_y_positions_with_edge_offset(hinge_y_positions, door_hei
     step = span / float(n - 1)
     return [y_min + (i * step) for i in range(n)]
 
-def _door_leaf_hinge_rows(door_props, door_height):
+HINGE_JUNCTION_CLEARANCE = 50.0   # charnière trop proche d'une jonction de caissons
+HINGE_JUNCTION_SHIFT = 150.0      # ... déplacée à cette distance sous la jonction
+
+
+def _door_hinge_positions(door_cab, door_height, door_z_bottom):
+    """Positions des charnières (depuis le bas du vantail) par vantail.
+
+    Retourne {'left': [...], 'right': [...]} ('left' = vantail charnières à
+    gauche ou porte simple). Source unique pour la feuille de porte ET les
+    embases des montants. Porte commune à plusieurs caissons : une charnière
+    à moins de 50 mm de la jonction est descendue à 150 mm sous la jonction.
+    """
+    dp = door_cab.get('door_props', {}) or {}
+    y_h = _compute_door_hinge_y_positions(door_height, dp)
+    if dp.get('door_type', 'single') == 'double' and dp.get('door_model') == 'floor_length':
+        y_left = _redistribute_hinge_y_positions_with_edge_offset(
+            y_h, door_height, edge='min', extra_offset_mm=_cache_pied_hinge_offset())
+        y_right = _redistribute_hinge_y_positions_with_edge_offset(
+            y_h, door_height, edge='max', extra_offset_mm=_cache_pied_hinge_offset())
+    else:
+        y_left = list(y_h)
+        y_right = list(y_h)
+
+    junctions = []
+    H_cab = float(door_cab.get('dims', {}).get('H_raw', 0.0) or 0.0)
+    if get_cabinet_door_height_raw(door_cab) > H_cab + 0.5:
+        # Jonction avec le caisson du dessus, dans le repère du vantail.
+        junctions.append(H_cab - float(door_z_bottom))
+
+    def _avoid(ys):
+        out = []
+        for y in ys:
+            for j in junctions:
+                if abs(y - j) < HINGE_JUNCTION_CLEARANCE:
+                    y = max(1.0, j - HINGE_JUNCTION_SHIFT)
+            out.append(y)
+        return sorted(out)
+
+    return {'left': _avoid(y_left), 'right': _avoid(y_right)}
+
+
+def _door_leaf_hinge_rows(door_cab, door_height, door_z_bottom):
     """[(montant 'mg'|'md', y depuis le bas du vantail)] — mêmes positions que
     les cuvettes de la feuille de porte."""
-    y_h = _compute_door_hinge_y_positions(door_height, door_props)
-    if door_props.get('door_type', 'single') == 'double':
-        if door_props.get('door_model') == 'floor_length':
-            y_left = _redistribute_hinge_y_positions_with_edge_offset(
-                y_h, door_height, edge='min', extra_offset_mm=_cache_pied_hinge_offset())
-            y_right = _redistribute_hinge_y_positions_with_edge_offset(
-                y_h, door_height, edge='max', extra_offset_mm=_cache_pied_hinge_offset())
-        else:
-            y_left = y_right = y_h
-        return [('mg', y) for y in y_left] + [('md', y) for y in y_right]
-    side = 'mg' if door_props.get('door_opening') == 'left' else 'md'
-    return [(side, y) for y in y_h]
+    dp = door_cab.get('door_props', {}) or {}
+    pos = _door_hinge_positions(door_cab, door_height, door_z_bottom)
+    if dp.get('door_type', 'single') == 'double':
+        return [('mg', y) for y in pos['left']] + [('md', y) for y in pos['right']]
+    side = 'mg' if dp.get('door_opening') == 'left' else 'md'
+    return [(side, y) for y in pos['left']]
 
 
 def _door_hinge_rows_for_cabinet(scene, cab_idx, cab):
@@ -890,7 +925,7 @@ def _door_hinge_rows_for_cabinet(scene, cab_idx, cab):
         dp = door_cab.get('door_props', {}) or {}
         span = get_cabinet_door_height_raw(door_cab)
         dH, dz = get_door_vertical_geometry(span, dp, has_feet, foot_h)
-        for side, y in _door_leaf_hinge_rows(dp, dH):
+        for side, y in _door_leaf_hinge_rows(door_cab, dH, dz):
             y_m = dz + y - base_offset
             # Charnière pile à la jonction : percée une seule fois, sur le
             # caisson du dessous (porteur de la porte).
@@ -1764,8 +1799,13 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 door_type = dp.get('door_type', 'single')
                 # Porte commune à deux caissons superposés : la hauteur couverte
                 # remplace celle du seul caisson.
-                dH = _compute_door_height_for_plan(get_cabinet_door_height_raw(cab), dp)
-                y_h = _compute_door_hinge_y_positions(dH, dp)
+                dH, door_dz = get_door_vertical_geometry(
+                    get_cabinet_door_height_raw(cab), dp,
+                    bool(st.session_state.get('has_feet', False)),
+                    st.session_state.get('foot_height', 0.0),
+                )
+                hinge_pos = _door_hinge_positions(cab, dH, door_dz)
+                y_h = hinge_pos['left']
 
                 if door_type == 'double':
                     dW_half = (L_raw - (2 * dp['door_gap'])) / 2.0
@@ -1777,13 +1817,13 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         c_p = {"Chant Avant":True, "Chant Arrière":True, "Chant Gauche":True, "Chant Droit":True}
 
                         title_left = f"PORTE DROITE (C{cab_idx})"
-                        y_h_left = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='min', extra_offset_mm=_cache_pied_hinge_offset())
+                        y_h_left = hinge_pos['left']
                         holes_p_left = _build_door_face_holes(dW_half, y_h_left, hinge_side='left')
                         plans.append((title_left, dW_half, dH, dp['door_thickness'], c_p, holes_p_left, [], [], None))
                         plan_quantities[title_left] = 1
 
                         title_right = f"PORTE GAUCHE (C{cab_idx})"
-                        y_h_right = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='max', extra_offset_mm=_cache_pied_hinge_offset())
+                        y_h_right = hinge_pos['right']
                         # Keep cups on the same panel side as the left variant; only Y distribution is mirrored.
                         holes_p_right = _build_door_face_holes(dW_half, y_h_right, hinge_side='left')
                         plans.append((title_right, dW_half, dH, dp['door_thickness'], c_p, holes_p_right, [], [], None))
