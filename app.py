@@ -2145,7 +2145,7 @@ with col1:
                             d_p['custom_hinge_positions'] = custom_positions[:num_hinges]
 
                     st.markdown("#### Fileur")
-                    current_fileur = int(d_p.get('fileur_width', 0))
+                    current_fileur = float(d_p.get('fileur_width', 0) or 0.0)
                     has_fileur = current_fileur > 0
                     fileur_toggle = st.toggle(
                         "Avec fileur",
@@ -2153,15 +2153,38 @@ with col1:
                         key=f"has_fileur_{idx}"
                     )
                     if fileur_toggle:
+                        # 5 cm / 10 cm en raccourci, ou largeur libre en mm.
+                        _fil_opts = [50, 100, 'custom']
+                        if current_fileur in (50.0, 100.0):
+                            _fil_idx = _fil_opts.index(int(current_fileur))
+                        elif current_fileur > 0:
+                            _fil_idx = 2
+                        else:
+                            _fil_idx = 0
                         fileur_choice = st.radio(
                             "Largeur du fileur",
-                            options=[50, 100],
-                            index=0 if current_fileur != 100 else 1,
-                            format_func=lambda x: "5 cm" if x == 50 else "10 cm",
-                            key=f"fileur_width_{idx}",
+                            options=_fil_opts,
+                            index=_fil_idx,
+                            format_func=lambda x: {50: "5 cm", 100: "10 cm"}.get(x, "Personnalisée"),
+                            key=f"fileur_choice_{idx}",
                             horizontal=True
                         )
-                        d_p['fileur_width'] = fileur_choice
+                        if fileur_choice == 'custom':
+                            # Le caisson doit garder une largeur utile (montants + 100 mm).
+                            _fil_max = max(1.0, float(selected_cab['dims']['L_raw'])
+                                           - 2.0 * float(selected_cab['dims']['t_lr_raw']) - 100.0)
+                            _fil_default = current_fileur if current_fileur not in (0.0, 50.0, 100.0) else 75.0
+                            d_p['fileur_width'] = float(st.number_input(
+                                "Largeur du fileur (mm)",
+                                min_value=1.0,
+                                max_value=_fil_max,
+                                value=float(min(_fil_default, _fil_max)),
+                                step=1.0,
+                                format="%.0f",
+                                key=f"fileur_custom_{idx}",
+                            ))
+                        else:
+                            d_p['fileur_width'] = float(fileur_choice)
                     else:
                         d_p['fileur_width'] = 0
 
