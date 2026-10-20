@@ -27,7 +27,7 @@ from matplotlib.colors import to_rgba
 from PIL import Image, ImageDraw
 from machining_logic import (calculate_all_zones_2d, get_cabinet_door_height_raw,
                              cabinet_door_is_hidden, get_door_vertical_geometry,
-                             get_cache_pied_drop, door_zone_span,
+                             get_cache_pied_drop, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width)
 from project_definitions import get_joue_dimensions
 
@@ -571,7 +571,7 @@ def _cabinet_vertices(cab: Dict, origin=(0.0, 0.0, 0.0)) -> Dict[str, tuple]:
         door_z_bot = oz + door_dz
         dtype = dp.get("door_type", "single")
 
-        _span = door_zone_span(cab)
+        _span = door_cover_span(cab)
         ox_d, L_d = (ox + _span[0], _span[1] - _span[0]) if _span is not None else (ox, L)
         if dtype == "single":
             opening = dp.get("door_opening", "right")
@@ -822,7 +822,7 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
         rot_angle = 120.0 if dp.get("door_opening") == "right" else -90.0
 
         # Ouverture couverte : colonne entre deux montants, ou tout le caisson.
-        _span = door_zone_span(cab)
+        _span = door_cover_span(cab)
         if _span is not None:
             ox_d, L_d = rox + _span[0], _span[1] - _span[0]
         else:
@@ -1134,7 +1134,7 @@ def _description_lines(cab: Dict, label: str) -> List[str]:
             bool(cab.get("has_feet", False)), cab.get("foot_height", 0.0)
         )
 
-        _span = door_zone_span(cab)
+        _span = door_cover_span(cab)
         avail_w = ((_span[1] - _span[0]) if _span is not None else L_eff) - 2.0 * gap
         avail_w = max(0.0, avail_w)
 

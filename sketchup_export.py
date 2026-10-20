@@ -18,7 +18,7 @@ from xml.dom import minidom
 from typing import List, Tuple, Dict
 
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
-                             get_door_vertical_geometry, door_zone_span,
+                             get_door_vertical_geometry, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width)
 
 
@@ -508,7 +508,7 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
             ajar_angle = abs(float(door_angle_deg)) if is_ajar else 0.0
 
             # Ouverture couverte : colonne entre deux montants, ou tout le caisson.
-            _span = door_zone_span(cabinet)
+            _span = door_cover_span(cabinet)
             if _span is not None:
                 ox_d, L_d = ox + _span[0], _span[1] - _span[0]
             else:

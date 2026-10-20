@@ -59,6 +59,7 @@ from machining_logic import (
     drawer_piece_dims,
     door_columns,
     door_zone_span,
+    door_cover_span,
     column_filler_spans,
     column_filler_width,
 )
@@ -1267,7 +1268,7 @@ def calculate_all_project_parts():
             )
             
             # Porte dans une colonne (entre montants) ou sur tout le caisson.
-            _span = door_zone_span(cabinet)
+            _span = door_cover_span(cabinet)
             _opening_w = (_span[1] - _span[0]) if _span is not None else L_eff
             dW = _opening_w - (2 * dp['door_gap'])
             if dp.get('door_type') != 'single':
@@ -3925,7 +3926,7 @@ with col2:
                 
                 # Ouverture couverte : une colonne entre deux montants (principaux
                 # ou secondaires), ou tout le caisson.
-                _span = door_zone_span(cab_render)
+                _span = door_cover_span(cab_render)
                 if _span is not None:
                     ox_d = o[0] + _span[0] * unit_factor
                     L_d = (_span[1] - _span[0]) * unit_factor

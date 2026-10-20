@@ -1004,7 +1004,8 @@ def column_filler_spans(cabinet):
         if abs(x0 - door_span[0]) <= 1.0 and abs(x1 - door_span[1]) <= 1.0:
             continue  # colonne de la porte
         if any(abs(x0 - float(w['x_min'])) <= 1.0 and abs(x1 - float(w['x_max'])) <= 1.0 for w in wanted):
-            out.append((x0, x1))
+            # Recouvrement en applique, comme une porte fermée sur cette colonne.
+            out.append(column_cover_span(cabinet, (x0, x1)))
     return out
 
 
@@ -1012,3 +1013,60 @@ def column_filler_width(cabinet, span):
     """Largeur d'un fileur de colonne : même règle que la porte (ouverture - 2 jeux)."""
     gap = float((cabinet.get('door_props', {}) or {}).get('door_gap', 2.0) or 0.0)
     return max(0.0, (span[1] - span[0]) - 2.0 * gap)
+
+
+def column_cover_span(cabinet, col_span):
+    """Zone couverte EN APPLIQUE par une porte ou un fileur posé sur une colonne.
+
+    `col_span` = (x_min, x_max) : faces des montants qui bordent la colonne.
+    Côté montant principal : jusqu'au bord extérieur du caisson (moins le jeu) ;
+    côté montant secondaire : jusqu'au milieu du montant (ou du double montant),
+    moins un demi-jeu. Retourne (x0, x1) tel que le panneau aille de x0 + jeu à
+    x1 - jeu (même convention que l'ouverture d'une porte pleine largeur).
+    """
+    dims = cabinet.get('dims', {}) or {}
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    L_raw = float(dims.get('L_raw', 0.0))
+    gap = float((cabinet.get('door_props', {}) or {}).get('door_gap', 2.0) or 0.0)
+    dividers = cabinet.get('vertical_dividers', []) or []
+    faces = [(float(d.get('position_x', 0.0)) - float(d.get('thickness', 19.0)) / 2.0,
+              float(d.get('position_x', 0.0)) + float(d.get('thickness', 19.0)) / 2.0) for d in dividers]
+
+    def _block_left(face_x):
+        # Montants secondaires collés à gauche de la face : bord gauche du bloc.
+        left = None
+        cur = face_x
+        while True:
+            hit = next((f for f in faces if abs(f[1] - cur) <= 1.0), None)
+            if hit is None:
+                return left
+            left = cur = hit[0]
+
+    def _block_right(face_x):
+        right = None
+        cur = face_x
+        while True:
+            hit = next((f for f in faces if abs(f[0] - cur) <= 1.0), None)
+            if hit is None:
+                return right
+            right = cur = hit[1]
+
+    x_min, x_max = float(col_span[0]), float(col_span[1])
+    if abs(x_min - t_lr) <= 1.0:
+        a = gap                                    # bord extérieur du caisson
+    else:
+        bl = _block_left(x_min)
+        a = ((bl + x_min) / 2.0 if bl is not None else x_min) + gap / 2.0
+    if abs(x_max - (L_raw - t_lr)) <= 1.0:
+        b = L_raw - gap
+    else:
+        br = _block_right(x_max)
+        b = ((br + x_max) / 2.0 if br is not None else x_max) - gap / 2.0
+    return (a - gap, b + gap)
+
+
+def door_cover_span(cabinet):
+    """Zone couverte par la porte native posée dans une colonne (applique),
+    ou None si elle couvre tout le caisson. Voir column_cover_span."""
+    span = door_zone_span(cabinet)
+    return column_cover_span(cabinet, span) if span is not None else None
