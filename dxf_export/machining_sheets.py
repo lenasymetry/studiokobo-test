@@ -160,6 +160,27 @@ def _tranche_rows(sheet, side_info, side, s):
     return n
 
 
+def _circle_touches_triangle(cx, cy, r, tri):
+    """Vrai si le disque (cx, cy, r) recoupe le triangle."""
+    (x1, y1), (x2, y2), (x3, y3) = tri
+
+    def side(ax, ay, bx, by):
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+    d1, d2, d3 = side(x1, y1, x2, y2), side(x2, y2, x3, y3), side(x3, y3, x1, y1)
+    if (d1 >= 0 and d2 >= 0 and d3 >= 0) or (d1 <= 0 and d2 <= 0 and d3 <= 0):
+        return True  # centre dans le triangle
+
+    def seg_dist(ax, ay, bx, by):
+        vx, vy = bx - ax, by - ay
+        L2 = vx * vx + vy * vy
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((cx - ax) * vx + (cy - ay) * vy) / L2))
+        qx, qy = ax + t * vx, ay + t * vy
+        return math.hypot(cx - qx, cy - qy)
+
+    return min(seg_dist(x1, y1, x2, y2), seg_dist(x2, y2, x3, y3), seg_dist(x3, y3, x1, y1)) < r
+
+
 def _cutout_props(cut):
     if not cut:
         return None
@@ -430,15 +451,55 @@ class _Drawer:
                 self.dim((edge_coord, a), (edge_coord, b), "y", base)
         return nrows
 
-    def triangle(self, apex, direction, filled):
-        """Triangle de repère : pointe sur le bord, orientée vers l'extérieur."""
+    def triangle(self, apex, direction, filled, holes=(), edge_len=0.0):
+        """Triangle de repère : pointe sur le bord, orientée vers l'extérieur.
+
+        Il ne doit cacher aucun perçage : s'il en touche un, sa hauteur est
+        réduite (même base) jusqu'à le dégager.
+        """
         size = TRIANGLE * self.s
-        hgt = size * math.sqrt(3) / 2.0
-        ax, ay = apex
+        full_hgt = size * math.sqrt(3) / 2.0
         dx, dy = direction
-        bx, by = ax - dx * hgt, ay - dy * hgt          # milieu de la base (intérieur)
         px, py = -dy * size / 2.0, dx * size / 2.0
-        pts = [self.P(ax, ay), self.P(bx + px, by + py), self.P(bx - px, by - py)]
+        tx, ty = abs(dy), abs(dx)                       # direction le long du bord
+
+        def corners(ax, ay, h):
+            bx, by = ax - dx * h, ay - dy * h          # milieu de la base (intérieur)
+            return [(ax, ay), (bx + px, by + py), (bx - px, by - py)]
+
+        def hits(tri):
+            return any(_circle_touches_triangle(hx, hy, r + 0.3 * self.s, tri) for hx, hy, r in holes)
+
+        def shrink(ax, ay):
+            h = full_hgt
+            while h > full_hgt * 0.1 and hits(corners(ax, ay, h)):
+                h *= 0.9
+            return h if not hits(corners(ax, ay, h)) else 0.0
+
+        # 1) Même position, hauteur réduite (même base) si un perçage est touché.
+        ax, ay = apex
+        hgt = shrink(ax, ay)
+        # 2) Trop petit pour rester lisible : décalé le long du même bord, au
+        #    plus près du milieu, là où il tient sans cacher de perçage.
+        if hgt < 0.6 * full_hgt and edge_len:
+            step = size / 4.0
+            best = None
+            k = 1
+            while k * step <= edge_len / 2.0 - size / 2.0:
+                for sign in (1, -1):
+                    cx, cy = apex[0] + sign * tx * k * step, apex[1] + sign * ty * k * step
+                    h = shrink(cx, cy)
+                    if h >= 0.6 * full_hgt:
+                        best = (cx, cy, h)
+                        break
+                if best:
+                    break
+                k += 1
+            if best:
+                ax, ay, hgt = best
+        if hgt <= 0.0:
+            hgt = full_hgt * 0.1
+        pts = [self.P(x, y) for x, y in corners(ax, ay, hgt)]
         self.msp.add_lwpolyline(pts, close=True, dxfattribs={"layer": "REPERES"})
         if filled:
             h = self.msp.add_hatch(color=7, dxfattribs={"layer": "REPERES"})
@@ -613,7 +674,9 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         apex = {"bottom": (Wd / 2.0, 0.0), "top": (Wd / 2.0, Hd),
                 "left": (0.0, Hd / 2.0), "right": (Wd, Hd / 2.0)}[side]
         direction = {"bottom": (0, -1), "top": (0, 1), "left": (-1, 0), "right": (1, 0)}[side]
-        D.triangle(apex, direction, filled)
+        D.triangle(apex, direction, filled,
+                   holes=[(h["_x"], h["_y"], _hole_diameter(h.get("diam_str"), 5.0) / 2.0) for h in face],
+                   edge_len=Wd if side in ("bottom", "top") else Hd)
 
     return _extents(sheet, s)
 
