@@ -2,6 +2,8 @@ import streamlit as st
 import datetime
 from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
+from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
+                             get_door_vertical_geometry, get_cache_pied_drop)
 from machining_logic import calculate_back_panel_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
@@ -770,10 +772,31 @@ def get_automatic_edge_banding_export(part_name):
 
 
 def _compute_door_height_for_plan(H_raw, door_props):
-    door_gap = float(door_props.get('door_gap', 2.0))
-    if door_props.get('door_model') == 'floor_length':
-        return float(H_raw) + float(st.session_state.get('foot_height', 0.0)) - door_gap - 10.0
-    return float(H_raw) - (2.0 * door_gap)
+    """Hauteur du vantail pour la feuille d'usinage.
+
+    Même règle que la 3D et le débit : le modèle cache-pieds descend devant les
+    pieds en s'arrêtant à 10 mm du sol (voir `get_door_vertical_geometry`).
+    Sans pieds, il n'y a rien à cacher et la porte ne descend pas.
+    """
+    height, _ = get_door_vertical_geometry(
+        H_raw, door_props,
+        bool(st.session_state.get('has_feet', False)),
+        st.session_state.get('foot_height', 0.0),
+    )
+    return height
+
+
+def _cache_pied_hinge_offset():
+    """Décalage des charnières d'une porte double cache-pieds.
+
+    Il vaut la descente de la porte sous le caisson : la charnière extrême se
+    retrouve ainsi au niveau du bas du caisson, et non dans la partie du vantail
+    qui passe devant les pieds (où il n'y a pas de montant pour la visser).
+    """
+    return get_cache_pied_drop(
+        bool(st.session_state.get('has_feet', False)),
+        st.session_state.get('foot_height', 0.0),
+    )
 
 
 def _compute_door_hinge_y_positions(door_height, door_props):
@@ -833,6 +856,77 @@ def _redistribute_hinge_y_positions_with_edge_offset(hinge_y_positions, door_hei
     span = new_max - y_min
     step = span / float(n - 1)
     return [y_min + (i * step) for i in range(n)]
+
+def _divider_vertical_span(div, interior_h):
+    """(bas, haut) du montant secondaire en mm depuis le dessus de la traverse basse."""
+    if div.get('_force_full_height') or div.get('bottom_y') is None or div.get('top_y') is None:
+        return 0.0, float(interior_h)
+    bottom = max(0.0, min(float(interior_h), float(div['bottom_y'])))
+    top = max(bottom, min(float(interior_h), float(div['top_y'])))
+    return bottom, top
+
+
+def _divider_is_partial(div, interior_h):
+    bottom, top = _divider_vertical_span(div, interior_h)
+    return bottom > 0.5 or top < float(interior_h) - 0.5
+
+
+def _divider_plan_height_and_holes(div, h_side, t_tb, holes):
+    """Hauteur du plan d'un montant secondaire et trous ramenés dans son repère.
+
+    Un montant pleine hauteur garde le plan historique (h_side). Un montant
+    partiel (posé entre deux étagères) a sa vraie longueur et ses trous sont
+    décalés depuis son pied.
+    """
+    interior_h = float(h_side) - 2.0 * float(t_tb)
+    if not _divider_is_partial(div, interior_h):
+        return h_side, holes
+    bottom, top = _divider_vertical_span(div, interior_h)
+    div_h = top - bottom
+    y0 = float(t_tb) + bottom
+    local = []
+    for h in holes:
+        y = float(h.get('y', 0.0)) - y0
+        if -0.5 <= y <= div_h + 0.5:
+            local.append({**h, 'y': y})
+    return div_h, local
+
+
+def _divider_traverse_holes(cab, L_trav, t_lr, t_tb, W_raw, t_fb, interior_h):
+    """Trous de traverses (bas, haut): uniquement pour les montants qui les touchent."""
+    bottom_holes = []
+    top_holes = []
+    for div in cab.get('vertical_dividers', []) or []:
+        holes = get_traverse_face_holes_for_divider(L_trav, div['position_x'], t_lr, t_tb, W_raw, t_fb)
+        bottom, top = _divider_vertical_span(div, interior_h)
+        if bottom <= 0.5:
+            bottom_holes.extend(holes)
+        if top >= float(interior_h) - 0.5:
+            top_holes.extend(holes)
+    return bottom_holes, top_holes
+
+
+def _shelf_face_holes_for_partial_dividers(cab, shelf, L_trav, t_lr, t_tb, W_raw, t_fb, interior_h):
+    """Tourillons sur la face d'une étagère fixe pour les montants partiels
+    posés dessus ou suspendus dessous (même règle que pour les traverses)."""
+    s_bottom = float(shelf.get('height', 0.0))
+    s_top = s_bottom + float(shelf.get('thickness', 19.0))
+    x0 = shelf.get('stored_shelf_x_start_mm')
+    w = shelf.get('stored_shelf_width_mm')
+    x_min = float(x0) if x0 is not None else float(t_lr)
+    x_max = x_min + float(w) if (x0 is not None and w is not None) else float('inf')
+    holes = []
+    for div in cab.get('vertical_dividers', []) or []:
+        if not _divider_is_partial(div, interior_h):
+            continue
+        div_x = float(div['position_x'])
+        if not (x_min - 0.5 <= div_x <= x_max + 0.5):
+            continue
+        bottom, top = _divider_vertical_span(div, interior_h)
+        if abs(bottom - s_top) <= 1.0 or abs(top - s_bottom) <= 1.0:
+            holes.extend(get_traverse_face_holes_for_divider(L_trav, div_x, t_lr, t_tb, W_raw, t_fb))
+    return holes
+
 
 def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_format='html'):
     """
@@ -1218,9 +1312,15 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         W_shelf = float(W_raw - 10.0)
                     c_shelf = {"Chant Avant":True, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":False}
                     th_shelf = fixed_shelf_tr_draw.get(s_idx, [])
+                    fh_shelf = []
+                    if s_type == 'fixe':
+                        fh_shelf = _shelf_face_holes_for_partial_dividers(
+                            cab, s, L_raw - 2.0 * t_lr, t_lr, t_tb, W_raw, t_fb, h_side - 2.0 * t_tb)
                     # Créer une clé unique pour regrouper les étagères identiques
                     # Utiliser les dimensions et les trous pour identifier les étagères identiques
-                    shelf_key = (round(L_shelf, 1), round(W_shelf, 1), round(s_th, 1), s_type, tuple(sorted([(round(h['x'], 1), round(h['y'], 1), h['type'], h['diam_str']) for h in th_shelf])))
+                    shelf_key = (round(L_shelf, 1), round(W_shelf, 1), round(s_th, 1), s_type,
+                                 tuple(sorted([(round(h['x'], 1), round(h['y'], 1), h['type'], h['diam_str']) for h in th_shelf])),
+                                 tuple(sorted([(round(h['x'], 1), round(h['y'], 1), h['type'], h['diam_str']) for h in fh_shelf])))
                     shelf_title = f"Etagère {s_type.capitalize()} (C{cab_idx})"
                     # Stocker les informations de l'étagère pour regroupement ultérieur
                     if shelf_key not in shelf_groups:
@@ -1230,7 +1330,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                             'W': W_shelf,
                             'T': s_th,
                             'ch': c_shelf,
-                            'fh': [],
+                            'fh': fh_shelf,
                             't_long_h': [],
                             't_cote_h': th_shelf,
                             'cut': None,
@@ -1350,15 +1450,10 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             tholes_cote = [{'type':'tourillon','x':t_tb/2,'y':y,'diam_str':"⌀8/22"} for y in ys_dowel]
             
             # Ajouter les trous sur les FACES des traverses (gauche et droite) pour les montants secondaires
-            traverse_face_holes_left = []
-            traverse_face_holes_right = []
-            if 'vertical_dividers' in cab and cab['vertical_dividers']:
-                for div in cab['vertical_dividers']:
-                    div_x = div['position_x']
-                    # IMPORTANT : Les montants secondaires ont une profondeur de W - t_fb
-                    div_traverse_face_holes = get_traverse_face_holes_for_divider(L_trav, div_x, t_lr, t_tb, W_raw, t_fb)
-                    traverse_face_holes_left.extend(div_traverse_face_holes)
-                    traverse_face_holes_right.extend(div_traverse_face_holes)
+            # IMPORTANT : Les montants secondaires ont une profondeur de W - t_fb.
+            # Un montant partiel ne perce que la traverse qu'il touche.
+            traverse_face_holes_left, traverse_face_holes_right = _divider_traverse_holes(
+                cab, L_trav, t_lr, t_tb, W_raw, t_fb, h_side - 2.0 * t_tb)
             
             # Panneau arrière
             holes_fond = calculate_back_panel_holes(W_back, H_back, cab)
@@ -1530,10 +1625,14 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     plan_quantities[title_fond] = quantity
             
             # --- PORTE ---
-            if cab['door_props']['has_door']:
+            # `cabinet_door_is_hidden` : caisson recouvert par la porte commune
+            # du caisson du dessous -> pas de plan de porte propre.
+            if cab['door_props']['has_door'] and not cabinet_door_is_hidden(cab):
                 dp = cab['door_props']
                 door_type = dp.get('door_type', 'single')
-                dH = _compute_door_height_for_plan(H_raw, dp)
+                # Porte commune à deux caissons superposés : la hauteur couverte
+                # remplace celle du seul caisson.
+                dH = _compute_door_height_for_plan(get_cabinet_door_height_raw(cab), dp)
                 y_h = _compute_door_hinge_y_positions(dH, dp)
 
                 if door_type == 'double':
@@ -1546,13 +1645,13 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         c_p = {"Chant Avant":True, "Chant Arrière":True, "Chant Gauche":True, "Chant Droit":True}
 
                         title_left = f"PORTE DROITE (C{cab_idx})"
-                        y_h_left = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='min', extra_offset_mm=80.0)
+                        y_h_left = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='min', extra_offset_mm=_cache_pied_hinge_offset())
                         holes_p_left = _build_door_face_holes(dW_half, y_h_left, hinge_side='left')
                         plans.append((title_left, dW_half, dH, dp['door_thickness'], c_p, holes_p_left, [], [], None))
                         plan_quantities[title_left] = 1
 
                         title_right = f"PORTE GAUCHE (C{cab_idx})"
-                        y_h_right = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='max', extra_offset_mm=80.0)
+                        y_h_right = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='max', extra_offset_mm=_cache_pied_hinge_offset())
                         # Keep cups on the same panel side as the left variant; only Y distribution is mirrored.
                         holes_p_right = _build_door_face_holes(dW_half, y_h_right, hinge_side='left')
                         plans.append((title_right, dW_half, dH, dp['door_thickness'], c_p, holes_p_right, [], [], None))
@@ -1574,8 +1673,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             if 'vertical_dividers' in cab and cab['vertical_dividers']:
                 for div_idx, div in enumerate(cab['vertical_dividers']):
                     div_th = div.get('thickness', 19.0)
-                    div_h = h_side
                     div_w = W_mont
+                    div_h, div_holes_left = _divider_plan_height_and_holes(div, h_side, t_tb, divider_element_holes_left[div_idx])
+                    _, div_holes_right = _divider_plan_height_and_holes(div, h_side, t_tb, divider_element_holes_right[div_idx])
                     
                     # Trous sur les tranches haut et bas
                     div_tranche_holes = get_vertical_divider_tranche_holes(W_mont, div_th)
@@ -1584,8 +1684,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     c_div_22 = {"Chant Avant":False, "Chant Arrière":False, "Chant Gauche":True, "Chant Droit":False}
                     
                     # TOUJOURS générer 2 plans (1/2 et 2/2) pour chaque montant secondaire
-                    plans.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 1/2", div_w, div_h, div_th, c_div_12, divider_element_holes_left[div_idx], div_tranche_holes, [], None))
-                    plans.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 2/2", div_w, div_h, div_th, c_div_22, divider_element_holes_right[div_idx], div_tranche_holes, [], None))
+                    plans.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 1/2", div_w, div_h, div_th, c_div_12, div_holes_left, div_tranche_holes, [], None))
+                    plans.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 2/2", div_w, div_h, div_th, c_div_22, div_holes_right, div_tranche_holes, [], None))
 
             dxf_expected_count += len(plans)
             for item in plans:
@@ -1935,16 +2035,8 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
             divider_element_holes_left = {i: [] for i in range(len(cab['vertical_dividers']))}
             divider_element_holes_right = {i: [] for i in range(len(cab['vertical_dividers']))}
         
-        traverse_face_holes_left = []
-        traverse_face_holes_right = []
-        
-        if 'vertical_dividers' in cab and cab['vertical_dividers']:
-            for div_idx, div in enumerate(cab['vertical_dividers']):
-                div_x = div['position_x']
-                t_div = div.get('thickness', 19.0)
-                div_traverse_face_holes = get_traverse_face_holes_for_divider(L_trav, div_x, t_lr, t_tb, W_raw, t_fb)
-                traverse_face_holes_left.extend(div_traverse_face_holes)
-                traverse_face_holes_right.extend(div_traverse_face_holes)
+        traverse_face_holes_left, traverse_face_holes_right = _divider_traverse_holes(
+            cab, L_trav, t_lr, t_tb, W_raw, t_fb, h_side - 2.0 * t_tb)
         
         # Ajouter les trous pour étagères et tiroirs sur les montants
         base_el = cab.get('base_elements', {
@@ -2273,7 +2365,8 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         # Montants secondaires (diviseurs verticaux)
         if 'vertical_dividers' in cab and cab['vertical_dividers']:
             for div_idx, div in enumerate(cab['vertical_dividers']):
-                div_h = div.get('height', h_side)
+                div_h, div_holes_left = _divider_plan_height_and_holes(div, h_side, t_tb, divider_element_holes_left[div_idx])
+                _, div_holes_right = _divider_plan_height_and_holes(div, h_side, t_tb, divider_element_holes_right[div_idx])
                 div_w = W_mont
                 div_th = div.get('thickness', 19.0)
                 div_tranche_holes = get_vertical_divider_tranche_holes(W_mont, div_th)
@@ -2283,14 +2376,14 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                 fig_div1 = draw_machining_view_pro_final(
                     f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 1/2",
                     div_w, div_h, div_th, st.session_state.unit_select, proj, c_div_12,
-                    divider_element_holes_left[div_idx], div_tranche_holes, [], None, False
+                    div_holes_left, div_tranche_holes, [], None, False
                 )
                 all_figures.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 1/2", fig_div1))
                 
                 fig_div2 = draw_machining_view_pro_final(
                     f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 2/2",
                     div_w, div_h, div_th, st.session_state.unit_select, proj, c_div_22,
-                    divider_element_holes_right[div_idx], div_tranche_holes, [], None, False
+                    div_holes_right, div_tranche_holes, [], None, False
                 )
                 all_figures.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 2/2", fig_div2))
         
@@ -2336,9 +2429,9 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                 all_figures.append((title, fig_shelf))
         
         # Portes (logique complète: simple/double + perçages de charnières)
-        if cab.get('door_props', {}).get('has_door', False):
+        if cab.get('door_props', {}).get('has_door', False) and not cabinet_door_is_hidden(cab):
             dp = cab['door_props']
-            dH = _compute_door_height_for_plan(H_raw, dp)
+            dH = _compute_door_height_for_plan(get_cabinet_door_height_raw(cab), dp)
             y_h = _compute_door_hinge_y_positions(dH, dp)
             door_type = dp.get('door_type', 'single')
 
@@ -2349,7 +2442,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                     c_fa = {"Chant Avant": True, "Chant Arrière": True, "Chant Gauche": True, "Chant Droit": True}
 
                     title_left = f"PORTE DROITE (C{cab_idx})"
-                    y_h_left = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='min', extra_offset_mm=80.0)
+                    y_h_left = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='min', extra_offset_mm=_cache_pied_hinge_offset())
                     holes_left = _build_door_face_holes(dW, y_h_left, hinge_side='left')
                     fig_left = draw_machining_view_pro_final(
                         title_left, dW, dH, dp.get('door_thickness', 19.0),
@@ -2358,7 +2451,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                     all_figures.append((title_left, fig_left))
 
                     title_right = f"PORTE GAUCHE (C{cab_idx})"
-                    y_h_right = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='max', extra_offset_mm=80.0)
+                    y_h_right = _redistribute_hinge_y_positions_with_edge_offset(y_h, dH, edge='max', extra_offset_mm=_cache_pied_hinge_offset())
                     # Keep cups on the same panel side as the left variant; only Y distribution is mirrored.
                     holes_right = _build_door_face_holes(dW, y_h_right, hinge_side='left')
                     fig_right = draw_machining_view_pro_final(

@@ -266,10 +266,19 @@ HTML_DOC = f"""
   <span class="ui">Type de porte</span> (Simple ou Double),
   <span class="ui">Sens d'ouverture</span> (Droite ou Gauche, pour une porte simple),
   <span class="ui">Épaisseur (mm)</span>,
-  <span class="ui">Modèle</span> (Standard ou Cache-pied) et
+  <span class="ui">Modèle</span> (Standard ou Cache-pied — le vantail descend alors devant les
+  pieds et s'arrête à 10 mm du sol, de quoi passer un tapis) et
   <span class="ui">Jeu extérieur (mm)</span>. La section
   <b>Charnières</b> permet de laisser le calcul automatique ou d'imposer le nombre et la
   position de chaque charnière.</p>
+  <p><b>Porte commune à deux caissons superposés</b> — lorsqu'un caisson est posé sur le
+  caisson sélectionné (ajouté avec <span class="ui">⬆️ Ajouter en haut</span>), l'option
+  <span class="ui">Porte commune avec le caisson du dessus</span> apparaît. Cochée, un seul
+  vantail habille les deux caissons : sa hauteur est la somme des deux hauteurs et toutes les
+  autres règles restent celles d'une porte simple (jeu extérieur, modèle cache-pied qui
+  descend devant les pieds, charnières réparties sur la hauteur totale, chants). La porte
+  propre du caisson du dessus est alors ignorée — elle n'apparaît ni dans la 3D, ni au débit,
+  ni dans les plans d'usinage.</p>
   <p><b>Fileur</b> — réduit la largeur utile du caisson du côté de l'ouverture ; les façades
   sont recalculées en conséquence.</p>
   <p><b>Configuration des Tiroirs</b> — <span class="ui">➕ Ajouter un Tiroir</span> pose un
@@ -301,9 +310,12 @@ HTML_DOC = f"""
   <h3>Onglet Joues</h3>
   <p>Quatre habillages indépendants : <span class="ui">Joue gauche</span>,
   <span class="ui">Joue droite</span>, <span class="ui">Joue dessus</span>,
-  <span class="ui">Joue dessous</span>. Cochez <span class="ui">Activer …</span> puis
-  renseignez largeur, longueur et épaisseur. Les joues apparaissent dans la 3D et dans le
-  débit.</p>
+  <span class="ui">Joue dessous</span>. Cochez <span class="ui">Activer …</span> et
+  choisissez la matière : aucune cote n'est à saisir. Chaque joue recouvre exactement le
+  montant (gauche/droite) ou la traverse (dessus/dessous) auquel elle est associée et en
+  reprend les dimensions. Si le meuble est sur pieds, les joues gauche et droite descendent
+  devant les pieds pour les cacher, en s'arrêtant à 10 mm du sol comme une porte cache-pieds. Les joues apparaissent
+  dans la 3D et dans le débit.</p>
 
   <h3>Onglet Feuille de Débit</h3>
   <p>Affiche le débit calculé pour ce caisson, pièce par pièce, dans un tableau modifiable.

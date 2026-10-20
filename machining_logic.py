@@ -1,5 +1,7 @@
 import math
 
+from project_definitions import CACHE_PIED_FLOOR_CLEARANCE
+
 def calculate_origins_recursively(scene_cabinets, unit_factor):
     """
     Calcule les origines absolues de chaque caisson dans la scène.
@@ -85,6 +87,255 @@ def calculate_origins_recursively(scene_cabinets, unit_factor):
         abs_origins.append(pos)
     
     return abs_origins
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Portes communes à deux caissons superposés
+# ─────────────────────────────────────────────────────────────────────────────
+# Un caisson posé sur un autre est un enfant d'`attachment_dir == 'up'` (voir
+# `calculate_origins_recursively`). Le caisson DU BAS porte la porte : son
+# `door_props['span_up']` indique que le vantail monte aussi devant le caisson
+# du dessus. La porte garde toutes les autres règles d'une porte simple (jeu,
+# modèle cache-pieds, charnières, chants) — seule la hauteur couverte change.
+
+
+def cabinet_rests_on_floor(scene_cabinets, cab_index):
+    """Le caisson repose-t-il sur le sol ?
+
+    Faux dès qu'un maillon de sa chaîne de parenté est un empilement : un
+    caisson posé sur un autre — ou accolé à un caisson lui-même superposé —
+    repose sur le meuble, pas au sol. C'est ce qui décide de la plinthe : elle
+    n'existe qu'au niveau du sol, une seule pour toute une pile.
+    """
+    if not (0 <= cab_index < len(scene_cabinets)):
+        return False
+    seen = set()
+    index = cab_index
+    while True:
+        if index in seen or not (0 <= index < len(scene_cabinets)):
+            # Parenté circulaire ou cassée : on ne revendique pas le sol.
+            return False
+        seen.add(index)
+        cab = scene_cabinets[index]
+        parent = cab.get('parent_index')
+        if parent is None:
+            return True
+        if cab.get('attachment_dir') == 'up':
+            return False
+        index = parent
+
+
+# Plinthe : cotes canoniques. La longueur d'une plinthe est la largeur qu'elle
+# habille, moins les deux montants d'extrémité, plus une réserve de pose.
+PLINTHE_END_ALLOWANCE = 100.0
+PLINTHE_WIDTH = 80.0
+PLINTHE_THICKNESS = 19.0
+# Deux caissons sont jugés accolés si leurs bords se touchent à ce jeu près.
+PLINTHE_JOIN_TOLERANCE = 1.0
+
+
+def get_plinthe_groups(scene_cabinets):
+    """Regroupe les caissons posés au sol en plinthes d'un seul tenant.
+
+    Des caissons alignés et jointifs se partagent UNE plinthe continue courant
+    devant toute la façade, et non une plinthe chacun : c'est une seule pièce à
+    débiter et à poser. Un changement de matière coupe le groupe — une plinthe
+    ne peut pas être de deux décors à la fois.
+
+    Les caissons superposés sont exclus d'office (voir `cabinet_rests_on_floor`).
+
+    Retourne une liste de dicts, dans l'ordre des X croissants :
+    `indices` (caissons couverts), `length`, `width`, `thickness`, `material`.
+    """
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    on_floor = []
+    for i, cab in enumerate(scene_cabinets):
+        if not cabinet_rests_on_floor(scene_cabinets, i):
+            continue
+        dims = cab.get('dims', {}) or {}
+        L_raw = float(dims.get('L_raw', 0.0) or 0.0)
+        fileur = float((cab.get('door_props') or {}).get('fileur_width', 0) or 0.0)
+        on_floor.append({
+            'index': i,
+            'x_start': float(origins[i][0]),
+            'x_end': float(origins[i][0]) + L_raw,
+            # Largeur réellement habillée : le fileur mange la façade.
+            'width': max(0.0, L_raw - fileur),
+            't_lr': float(dims.get('t_lr_raw', 19.0) or 0.0),
+            'material': str(cab.get('material_body', 'Matière Corps')),
+        })
+    on_floor.sort(key=lambda c: c['x_start'])
+
+    groups = []
+    for cab in on_floor:
+        if groups:
+            last = groups[-1]
+            joined = (abs(cab['x_start'] - last['_x_end']) <= PLINTHE_JOIN_TOLERANCE
+                      and cab['material'] == last['material'])
+            if joined:
+                last['indices'].append(cab['index'])
+                last['_width'] += cab['width']
+                last['_x_end'] = cab['x_end']
+                last['_t_lr_right'] = cab['t_lr']
+                continue
+        groups.append({
+            'indices': [cab['index']],
+            'material': cab['material'],
+            '_width': cab['width'],
+            '_t_lr_left': cab['t_lr'],
+            '_t_lr_right': cab['t_lr'],
+            '_x_end': cab['x_end'],
+        })
+
+    for group in groups:
+        # Même règle que pour un caisson isolé, appliquée à l'ensemble : largeur
+        # habillée moins les deux montants d'extrémité, plus la réserve de pose.
+        group['length'] = max(
+            0.0,
+            group.pop('_width') - group.pop('_t_lr_left') - group.pop('_t_lr_right')
+            + PLINTHE_END_ALLOWANCE,
+        )
+        group.pop('_x_end', None)
+        group['width'] = PLINTHE_WIDTH
+        group['thickness'] = PLINTHE_THICKNESS
+    return groups
+
+
+def get_plinthe_for_cabinet(scene_cabinets, cab_index):
+    """Plinthe portée par ce caisson, ou None.
+
+    Une plinthe commune à plusieurs caissons est rattachée au premier d'entre
+    eux (le plus à gauche) : les suivants n'en portent pas, sans quoi la même
+    pièce serait débitée plusieurs fois.
+    """
+    for group in get_plinthe_groups(scene_cabinets):
+        if group['indices'] and group['indices'][0] == cab_index:
+            return group
+    return None
+
+
+def format_plinthe_labels(indices):
+    """Référence et colonne « Caisson » d'une plinthe, simple ou commune."""
+    reference = "Plinthe (" + "+".join(f"C{k}" for k in indices) + ")"
+    caissons = ", ".join(f"C{k}" for k in indices)
+    return reference, caissons
+
+
+def get_cache_pied_drop(has_feet, foot_height):
+    """Descente d'une porte cache-pieds sous le bas du caisson, en mm.
+
+    La porte passe devant les pieds mais ne touche PAS le sol : elle s'arrête
+    `CACHE_PIED_FLOOR_CLEARANCE` mm au-dessus, de quoi glisser un tapis ou
+    absorber un sol irrégulier. Sans pieds, le caisson pose déjà au sol et la
+    porte ne descend pas plus bas que lui.
+    """
+    if not has_feet:
+        return 0.0
+    return max(0.0, float(foot_height or 0.0) - CACHE_PIED_FLOOR_CLEARANCE)
+
+
+def get_door_vertical_geometry(door_height_raw, door_props, has_feet=False,
+                               foot_height=0.0):
+    """Hauteur d'un vantail et position de son bas, en mm.
+
+    Retourne `(hauteur, z_bas)`, `z_bas` étant mesuré depuis le bas du caisson
+    (négatif quand la porte descend plus bas que lui).
+
+    * modèle standard   : jeu en haut ET en bas -> hauteur = H - 2 × jeu ;
+    * modèle cache-pieds: jeu en haut seulement, le bas descendant devant les
+      pieds jusqu'à `CACHE_PIED_FLOOR_CLEARANCE` du sol.
+
+    `door_height_raw` est la hauteur habillée par la porte — celle du caisson,
+    ou la somme des deux quand la porte est commune à deux caissons superposés
+    (voir `get_door_span_height`).
+    """
+    height = float(door_height_raw or 0.0)
+    gap = float(door_props.get('door_gap', 2.0) or 0.0)
+    if door_props.get('door_model') == 'floor_length':
+        drop = get_cache_pied_drop(has_feet, foot_height)
+        return height + drop - gap, -drop
+    return height - 2.0 * gap, gap
+
+
+def get_stacked_child_index(scene_cabinets, cab_index):
+    """Index du caisson posé directement au-dessus de `cab_index`, sinon None."""
+    for j, cab in enumerate(scene_cabinets):
+        if cab.get('parent_index') == cab_index and cab.get('attachment_dir') == 'up':
+            return j
+    return None
+
+
+def door_spans_stacked(scene_cabinets, cab_index):
+    """La porte de ce caisson couvre-t-elle aussi le caisson du dessus ?"""
+    if not (0 <= cab_index < len(scene_cabinets)):
+        return False
+    door_props = scene_cabinets[cab_index].get('door_props', {}) or {}
+    if not (door_props.get('has_door') and door_props.get('span_up')):
+        return False
+    return get_stacked_child_index(scene_cabinets, cab_index) is not None
+
+
+def get_door_span_height(scene_cabinets, cab_index):
+    """Hauteur brute (mm) couverte par la porte de `cab_index`.
+
+    C'est la hauteur du caisson, augmentée de celle du caisson du dessus quand
+    la porte est commune aux deux.
+    """
+    if not (0 <= cab_index < len(scene_cabinets)):
+        return 0.0
+    height = float(scene_cabinets[cab_index].get('dims', {}).get('H_raw', 0.0) or 0.0)
+    if door_spans_stacked(scene_cabinets, cab_index):
+        child = get_stacked_child_index(scene_cabinets, cab_index)
+        height += float(scene_cabinets[child].get('dims', {}).get('H_raw', 0.0) or 0.0)
+    return height
+
+
+def is_covered_by_stacked_door(scene_cabinets, cab_index):
+    """Ce caisson est-il déjà habillé par la porte commune du caisson du dessous ?
+
+    Sa propre porte ne doit alors être ni dessinée, ni débitée, ni usinée : elle
+    ferait double emploi avec le vantail commun.
+    """
+    if not (0 <= cab_index < len(scene_cabinets)):
+        return False
+    cab = scene_cabinets[cab_index]
+    parent_index = cab.get('parent_index')
+    if parent_index is None or cab.get('attachment_dir') != 'up':
+        return False
+    return door_spans_stacked(scene_cabinets, parent_index)
+
+
+def apply_door_spans(scene_cabinets):
+    """Inscrit sur chaque caisson l'état résolu de sa porte.
+
+    `door_span_height` : hauteur brute que la porte doit couvrir (mm).
+    `door_span_covered` : le caisson est masqué par la porte commune du dessous.
+
+    Ces deux clés dérivées sont recalculées à chaque exécution, de sorte que
+    tous les consommateurs (débit, 3D, plans d'usinage, SketchUp) lisent la même
+    valeur sans avoir à reparcourir la scène eux-mêmes.
+    """
+    for i, cab in enumerate(scene_cabinets):
+        cab['door_span_height'] = get_door_span_height(scene_cabinets, i)
+        cab['door_span_covered'] = is_covered_by_stacked_door(scene_cabinets, i)
+    return scene_cabinets
+
+
+def get_cabinet_door_height_raw(cab):
+    """Hauteur brute à utiliser pour la porte d'un caisson déjà annoté.
+
+    Repli sur la hauteur du caisson si `apply_door_spans` n'a pas été appelé
+    (anciens projets, appels directs des modules d'export).
+    """
+    span = cab.get('door_span_height')
+    if span:
+        return float(span)
+    return float(cab.get('dims', {}).get('H_raw', 0.0) or 0.0)
+
+
+def cabinet_door_is_hidden(cab):
+    """La porte propre de ce caisson doit-elle être ignorée ?"""
+    return bool(cab.get('door_span_covered', False))
+
 
 def calculate_hole_positions(W_raw):
     """

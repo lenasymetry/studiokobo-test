@@ -14,6 +14,10 @@ def get_default_door_props_19():
         'hinge_mode': 'default',  # 'default' ou 'custom'
         'custom_hinge_positions': [],  # Liste des positions Y personnalisées en mm
         'fileur_width': 0,  # 0 = pas de fileur, 50 = 5 cm, 100 = 10 cm
+        # Porte commune à deux caissons superposés : le vantail de ce caisson
+        # monte aussi devant le caisson posé juste au-dessus (voir
+        # `machining_logic.door_spans_stacked`).
+        'span_up': False,
     }
 
 def get_default_drawer_props_19():
@@ -63,14 +67,89 @@ def get_default_vertical_shelf_props():
         'material': 'Matière Corps'
     }
 
+JOUE_KEYS = ('gauche', 'droite', 'dessus', 'dessous')
+
+# Pièce du corps que chaque joue vient habiller. C'est elle qui donne ses
+# dimensions à la joue : aucune cote n'est saisie à la main.
+JOUE_COVERED_PART = {
+    'gauche': 'Montant Gauche',
+    'droite': 'Montant Droit',
+    'dessus': 'Traverse Haut',
+    'dessous': 'Traverse Bas',
+}
+
+# Jeu laissé entre le sol et le bas d'un panneau qui descend devant les pieds
+# (porte cache-pieds, joue latérale) : de quoi passer un tapis, une plinthe
+# souple ou un sol irrégulier sans que la façade ne frotte.
+CACHE_PIED_FLOOR_CLEARANCE = 10.0
+
+
 def get_default_joue_props():
-    """Retourne les propriétés par défaut pour une joue manuelle."""
+    """Retourne les propriétés par défaut pour une joue.
+
+    Les cotes ne sont plus stockées : elles sont recalculées à la volée par
+    `get_joue_dimensions` à partir du caisson (voir cette fonction).
+    """
     return {
         'enabled': False,
-        'width': 0.0,
-        'length': 0.0,
-        'thickness': 0.0,
         'material': 'Matière Corps',
+    }
+
+def get_joue_length_and_z_offset(joue_key, base_length, has_feet, foot_height):
+    """Longueur réelle et décalage Z (vers le bas) d'une joue.
+
+    Les joues gauche/droite descendent devant les pieds pour les cacher : on
+    prolonge la longueur (mesure du meuble) de la hauteur des pieds, en
+    s'arrêtant à `CACHE_PIED_FLOOR_CLEARANCE` du sol — exactement comme une
+    porte cache-pieds, pour que les deux panneaux s'alignent en bas. On décale
+    d'autant le point de départ vers le bas. Les joues dessus/dessous ne sont
+    pas concernées.
+    """
+    if joue_key not in ('gauche', 'droite') or not has_feet:
+        return base_length, 0.0
+    extra = max(0.0, float(foot_height or 0.0) - CACHE_PIED_FLOOR_CLEARANCE)
+    return base_length + extra, -extra
+
+def get_joue_dimensions(joue_key, dims, has_feet=False, foot_height=0.0,
+                        fileur_width=0.0):
+    """Dimensions automatiques d'une joue, en mm. Rien n'est saisi par l'utilisateur.
+
+    Une joue est un habillage rapporté : elle recouvre exactement la pièce à
+    laquelle elle est associée et en reprend donc les cotes —
+      * joue gauche / droite -> le montant correspondant
+        (longueur = hauteur du caisson, largeur = profondeur, épaisseur = t_lr) ;
+      * joue dessus / dessous -> la traverse correspondante
+        (longueur = entre-montants, largeur = profondeur, épaisseur = t_tb),
+        d'où un décalage en X d'une épaisseur de montant.
+
+    Si le meuble est sur pieds, les joues gauche/droite descendent jusqu'au sol
+    pour cacher les pieds, comme une porte cache-pieds : la longueur est
+    prolongée de la hauteur des pieds (1 mm de jeu au sol) et le panneau démarre
+    d'autant plus bas (`z_offset` négatif).
+
+    Retourne un dict : length, width, thickness, x_offset, z_offset (mm).
+    """
+    dims = dims or {}
+    L_eff = max(0.0, float(dims.get('L_raw', 0.0) or 0.0) - float(fileur_width or 0.0))
+    W = float(dims.get('W_raw', 0.0) or 0.0)
+    H = float(dims.get('H_raw', 0.0) or 0.0)
+    t_lr = float(dims.get('t_lr_raw', 19.0) or 0.0)
+    t_tb = float(dims.get('t_tb_raw', 19.0) or 0.0)
+
+    if joue_key in ('gauche', 'droite'):
+        base_length, thickness, x_offset = H, t_lr, 0.0
+    else:
+        base_length, thickness, x_offset = max(0.0, L_eff - 2.0 * t_lr), t_tb, t_lr
+
+    length, z_offset = get_joue_length_and_z_offset(
+        joue_key, base_length, has_feet, foot_height
+    )
+    return {
+        'length': length,
+        'width': W,
+        'thickness': thickness,
+        'x_offset': x_offset,
+        'z_offset': z_offset,
     }
 
 def get_legrabox_specs():
