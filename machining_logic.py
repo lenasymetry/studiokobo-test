@@ -548,6 +548,19 @@ def back_panel_side_dowel_positions(H_back):
     return [start + i * step for i in range(n + 1)]
 
 
+# Fond moins haut que ce seuil : un seul tourillon par montant, donc pas de vis.
+BACK_PANEL_SINGLE_DOWEL_MAX_H = 150.0
+
+
+def back_panel_upright_dowel_positions(H_back):
+    """Tourillons fond / montant le long de la hauteur du fond : un seul,
+    centré, si le fond fait moins de 150 mm, sinon la règle générale."""
+    H_back = float(H_back)
+    if H_back < BACK_PANEL_SINGLE_DOWEL_MAX_H:
+        return [H_back / 2.0]
+    return back_panel_side_dowel_positions(H_back)
+
+
 def calculate_back_panel_edge_holes(W_back, H_back):
     """Perçages des tranches du fond encastré.
 
@@ -559,7 +572,7 @@ def calculate_back_panel_edge_holes(W_back, H_back):
     Retourne (trous des tranches haut/bas, trous des tranches gauche/droite).
     """
     side_holes = [{'type': 'tourillon', 'x': 0.0, 'y': y, 'diam_str': "⌀8/22"}
-                  for y in back_panel_side_dowel_positions(H_back)]
+                  for y in back_panel_upright_dowel_positions(H_back)]
     return [], side_holes
 
 
@@ -581,7 +594,7 @@ def back_panel_upright_holes(cabinet, W_mont):
     H_back = carcass_piece_dims(cabinet)['fond_H']
     off_y = (H_raw - H_back) / 2.0                         # fond centré en hauteur
     x_front = _back_panel_axis_from_front(cabinet)
-    dowels = back_panel_side_dowel_positions(H_back)
+    dowels = back_panel_upright_dowel_positions(H_back)
     screws = [(a + b) / 2.0 for a, b in zip(dowels, dowels[1:])]
     mg, md = [], []
     for y in dowels:
