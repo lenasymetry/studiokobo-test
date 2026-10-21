@@ -768,7 +768,8 @@ def get_automatic_edge_banding_export(part_name):
     elif "fond" in name or "dos" in name:
         if "façade" in name or "face" in name: return True, True, True, True
         return False, False, False, False
-    elif "traverse" in name: return True, True, False, False
+    # Traverse : pas de chant sur la tranche arrière, contre le mur.
+    elif "traverse" in name: return True, False, False, False
     else: return True, True, True, True
 
 
@@ -1695,9 +1696,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             })
             
             if base_el.get('has_bottom_traverse', True):
-                plans.append(("Traverse Bas (Tb)", L_trav, W_trav, t_tb, c_trav, traverse_face_holes_left + fond_trav_holes, tholes_longue, tholes_cote, None))
+                plans.append(("Traverse Bas (Tb)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Bas", c_trav), traverse_face_holes_left + fond_trav_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_top_traverse', True):
-                plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, c_trav, traverse_face_holes_right + fond_trav_holes, tholes_longue, tholes_cote, None))
+                plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Haut", c_trav), traverse_face_holes_right + fond_trav_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_left_upright', True):
                 c_mg = debit_piece_chants(cab, "Montant Gauche", dict(c_mont, **{"Chant Droit": False}))
                 plans.append(("Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, [], tranche_holes_mg, None))

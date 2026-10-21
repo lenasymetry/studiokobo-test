@@ -1205,6 +1205,23 @@ def migrate_upright_wall_chants(scene_cabinets):
     return scene_cabinets
 
 
+def migrate_traverse_wall_chants(scene_cabinets):
+    """Une seule fois par caisson : retire le chant de la tranche arrière
+    (contre le mur) des traverses encore réglées sur l'ancien défaut
+    (avant + arrière chantés)."""
+    for cab in scene_cabinets:
+        if cab.get('_traverse_wall_chant_v2'):
+            continue
+        for piece in cab.get('debit_data', []) or []:
+            ref = str(piece.get('Référence Pièce', '')).split(' (')[0].strip()
+            if ref in ('Traverse Bas', 'Traverse Haut') and piece.get('Chant Avant', True) \
+                    and piece.get('Chant Arrière', True) and not piece.get('Chant Gauche', False) \
+                    and not piece.get('Chant Droit', False):
+                piece['Chant Arrière'] = False
+        cab['_traverse_wall_chant_v2'] = True
+    return scene_cabinets
+
+
 def debit_piece_chants(cabinet, ref_key, default):
     """Chants d'une pièce de structure tels que réglés dans la feuille de débit."""
     for piece in cabinet.get('debit_data', []) or []:

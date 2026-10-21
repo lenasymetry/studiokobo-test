@@ -43,6 +43,7 @@ from machining_logic import (
     apply_door_spans,
     apply_joue_spans,
     migrate_upright_wall_chants,
+    migrate_traverse_wall_chants,
     cabinet_joue_dims,
     get_stacked_child_index,
     get_cabinet_door_height_raw,
@@ -88,6 +89,7 @@ def _sync_door_spans():
     apply_door_spans(st.session_state.get('scene_cabinets', []) or [])
     apply_joue_spans(st.session_state.get('scene_cabinets', []) or [])
     migrate_upright_wall_chants(st.session_state.get('scene_cabinets', []) or [])
+    migrate_traverse_wall_chants(st.session_state.get('scene_cabinets', []) or [])
 
 
 _sync_door_spans()
@@ -677,7 +679,8 @@ def get_automatic_edge_banding(part_name):
     elif "fond" in name or "dos" in name:
         if "façade" in name or "face" in name: return True, True, True, True
         return False, False, False, False
-    elif "traverse" in name: return True, True, False, False
+    # Traverse : pas de chant sur la tranche arrière, contre le mur.
+    elif "traverse" in name: return True, False, False, False
     else: return True, True, True, True
 
 
