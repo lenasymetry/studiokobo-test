@@ -1167,32 +1167,19 @@ def calculate_all_project_parts():
         if 'joues' not in cabinet and isinstance(cabinet.get('door_props', {}).get('joues'), dict):
             cabinet['joues'] = copy.deepcopy(cabinet['door_props']['joues'])
         joues = cabinet.get('joues', {}) or {}
-        joue_chants = {
-            'droite': {
-                'Chant Avant': True,
-                'Chant Arrière': True,
-                'Chant Gauche': False,
-                'Chant Droit': True,
-            },
-            'gauche': {
-                'Chant Avant': True,
-                'Chant Arrière': True,
-                'Chant Gauche': True,
-                'Chant Droit': False,
-            },
-            'dessous': {
-                'Chant Avant': True,
-                'Chant Arrière': True,
-                'Chant Gauche': False,
-                'Chant Droit': True,
-            },
-            'dessus': {
-                'Chant Avant': True,
-                'Chant Arrière': True,
-                'Chant Gauche': True,
-                'Chant Droit': False,
-            },
+        # Repère d'une joue (feuille de débit = feuille d'usinage) : longueur =
+        # hauteur du meuble, largeur = profondeur.
+        #   Chant Avant  = grand côté à l'avant du meuble      -> chant
+        #   Chant Arrière = grand côté contre le mur (arrière) -> PAS de chant
+        #   Chant Gauche = petit côté du bas, Chant Droit = petit côté du haut -> chant
+        # Joues dessus/dessous : avant chanté, arrière (mur) non, extrémités chantées.
+        _joue_edge_chants = {
+            'Chant Avant': True,
+            'Chant Arrière': False,
+            'Chant Gauche': True,
+            'Chant Droit': True,
         }
+        joue_chants = {k: dict(_joue_edge_chants) for k in ('droite', 'gauche', 'dessous', 'dessus')}
         for joue_key, joue_label in [
             ('gauche', 'Joue gauche'),
             ('droite', 'Joue droite'),

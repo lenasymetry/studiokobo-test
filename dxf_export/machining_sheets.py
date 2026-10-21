@@ -220,6 +220,16 @@ def _triangles_for(title: str):
     t = (title or "").lower()
     for a, b in (("é", "e"), ("è", "e"), ("ê", "e"), ("ç", "c")):
         t = t.replace(a, b)
+    # Joues latérales : longueur = hauteur du meuble. Bord 'gauche' (x = 0) =
+    # bas du meuble, bord 'avant' (y = 0) = avant du meuble.
+    if "joue" in t and ("gauche" in t or "droite" in t):
+        return [("gauche", False), ("avant", True)]
+    if "joue" in t:
+        return [("avant", True)]
+    if "fileur colonne" in t or "plinthe" in t:
+        return [("avant", False)]
+    if "fond (panneau" in t or "panneau arriere" in t:
+        return [("avant", False)]
     if "traverse bas" in t or "traverse haut" in t:
         return [("avant", True)]
     if "montant droit" in t or ("montant" in t and "1/2" in t):
@@ -234,7 +244,8 @@ def _triangles_for(title: str):
         return [("avant", False)]
     if "porte" in t:
         return [("avant", False)]
-    return []
+    # Toute feuille porte au moins le repère du bas du corps de meuble.
+    return [("avant", False)]
 
 
 # =============================================================================
