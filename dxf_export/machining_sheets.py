@@ -138,12 +138,42 @@ def _stagger(positions, lo, hi, s):
     return segs, max(1, len(rows))
 
 
+ROW_TAG_W = 24.0       # place (mm papier) des étiquettes de rangée
+
+
+def _row_chains(face, pos_key, row_key):
+    """Une chaîne de cotes par rangée de trous (même coordonnée perpendiculaire).
+
+    Les rangées qui ont exactement les mêmes positions sont cotées une seule
+    fois. Retourne [(liste des rangées, positions)] triée de la rangée la plus
+    proche du bord coté à la plus éloignée."""
+    rows = {}
+    for h in face:
+        rows.setdefault(round(h[row_key], 1), set()).add(round(h[pos_key], 2))
+    merged = {}
+    for r in sorted(rows):
+        key = tuple(sorted(rows[r]))
+        merged.setdefault(key, []).append(r)
+    return sorted(((rs, list(pos)) for pos, rs in merged.items()), key=lambda c: min(c[0]))
+
+
+def _rows_label(rows):
+    """Étiquette courte d'une chaîne : « Rangée 240 », « Rangées 25 / 225 »,
+    ou « Rangées 69 … 2131 (15) » au-delà de trois rangées."""
+    if len(rows) == 1:
+        return f"Rangée {_fmt(rows[0])}"
+    if len(rows) <= 3:
+        return "Rangées " + " / ".join(_fmt(r) for r in rows)
+    return f"Rangées {_fmt(rows[0])} … {_fmt(rows[-1])} ({len(rows)})"
+
+
 def _face_rows(sheet, s):
+    """Nombre total de rangées de cotes (X en bas, Y à gauche) des perçages de face."""
     face = sheet.face_holes()
     if not face:
         return 0, 0
-    _, nx = _stagger([h["_x"] for h in face], 0.0, sheet.Wd, s)
-    _, ny = _stagger([h["_y"] for h in face], 0.0, sheet.Hd, s)
+    nx = sum(_stagger(pos, 0.0, sheet.Wd, s)[1] for _, pos in _row_chains(face, "_x", "_y"))
+    ny = sum(_stagger(pos, 0.0, sheet.Hd, s)[1] for _, pos in _row_chains(face, "_y", "_x"))
     return nx, ny
 
 
@@ -380,6 +410,9 @@ def _extents(sheet: _Sheet, s: float):
     top_callouts = (CALLOUT_ROW + 4.0) * s if sheet.face_holes() else 0.0
     minx = -(gap["left"] + td + out["left"] + 6 * s)
     maxx = sheet.Wd + gap["right"] + td + out["right"] + 6 * s
+    if sheet.face_holes():
+        maxx = max(maxx, sheet.Wd + ROW_TAG_W * s)        # étiquettes des rangées X
+        top_callouts = max(top_callouts, ROW_TAG_W * s)    # étiquettes des colonnes Y
     miny = -(gap["bottom"] + td + out["bottom"] + 6 * s)
     maxy = sheet.Hd + gap["top"] + td + max(out["top"], top_callouts) + 6 * s
     return minx, miny, maxx, maxy
@@ -633,8 +666,23 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         D.circle(h["_x"], h["_y"], _hole_diameter(h.get("diam_str"), 5.0))
     if face:
         # Une chaîne par axe, étagée pour que les textes ne se chevauchent pas.
-        nx = D.chain([h["_x"] for h in face], "x", 0, -DIM_ROW * s, 0, Wd, -1)
-        ny = D.chain([h["_y"] for h in face], "y", 0, -DIM_ROW * s, 0, Hd, -1)
+        # Une chaîne par rangée de trous, cotée depuis les deux bords de la
+        # pièce, avec une étiquette indiquant la rangée concernée.
+        nx = 0
+        for rows, pos in _row_chains(face, "_x", "_y"):
+            base = -(DIM_ROW + nx * ROW_STEP) * s
+            used = D.chain(pos, "x", 0, base, 0, Wd, -1)
+            label = _rows_label(rows)
+            D.text(label, Wd + 2 * s, base, align=TextEntityAlignment.MIDDLE_LEFT, h=TXT_H * 0.8)
+            nx += used
+        ny = 0
+        for cols, pos in _row_chains(face, "_y", "_x"):
+            base = -(DIM_ROW + ny * ROW_STEP) * s
+            used = D.chain(pos, "y", 0, base, 0, Hd, -1)
+            label = _rows_label(cols)
+            t = D.text(label, base, Hd + 2 * s, align=TextEntityAlignment.MIDDLE_LEFT, h=TXT_H * 0.8)
+            t.dxf.rotation = 90
+            ny += used
         groups = {}
         for h in face:
             groups.setdefault(h.get("diam_str", ""), []).append(h)
