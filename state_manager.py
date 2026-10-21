@@ -1064,6 +1064,10 @@ def _build_cabinet_from_web_config(payload: dict):
                 continue
             if not (t['y_bottom'] - 1.0 <= center_y <= t['y_top'] + 1.0):
                 continue
+            # Le configurateur place y_cm au milieu du montant : une plage dont
+            # le milieu ne correspond pas est une technical_spec erronée.
+            if abs((t['y_bottom'] + t['y_top']) / 2.0 - center_y) > 20.0:
+                continue
             # Plage ambiguë (anciens exports: tout en pleine hauteur) si elle
             # contient le milieu de plusieurs séparateurs au même X.
             n_inside = sum(
@@ -1086,38 +1090,38 @@ def _build_cabinet_from_web_config(payload: dict):
                 divider['_web_doubled'] = True
             continue
 
+        # Estimation : le montant va de l'étagère la plus proche sous y_cm à la
+        # plus proche au-dessus. Une étagère ne l'arrête que si elle le traverse
+        # ou le touche des DEUX côtés ; une étagère qui s'appuie d'un seul côté
+        # (entre deux montants) ne le coupe pas.
         div_half = max(1.0, float(divider.get('thickness', inferred_t_mm))) / 2.0
-        adj_tol = max(2.0, inferred_t_mm)
-        # (y web, bas interne si borne basse, haut interne si borne haute)
-        bounds = [(0.0, 0.0, None), (interior_h_mm, None, interior_h_mm)]
+        adj_tol = max(2.0, inferred_t_mm + 2.0)
+        d_left, d_right = div_center - div_half, div_center + div_half
+        levels = {}
         for shelf in cabinet['shelves']:
-            s_start = float(shelf.get('stored_shelf_x_start_mm', t_lr))
-            s_end = s_start + float(shelf.get('stored_shelf_width_mm', L_mm - 2.0 * t_lr))
-            if s_start > div_center + div_half + adj_tol or s_end < div_center - div_half - adj_tol:
+            if shelf.get('_web_x_bounds'):
+                s_start, s_end = (float(v) for v in shelf['_web_x_bounds'])
+            else:
+                s_start = float(shelf.get('stored_shelf_x_start_mm', t_lr))
+                s_end = s_start + float(shelf.get('stored_shelf_width_mm', L_mm - 2.0 * t_lr))
+            key = round(float(shelf.get('height', 0.0)) * 2.0) / 2.0
+            levels.setdefault(key, []).append((s_start, s_end, shelf))
+        below, above = [], []
+        for level, pieces in levels.items():
+            crosses = any(a0 < d_left - 1.0 and a1 > d_right + 1.0 for a0, a1, _ in pieces)
+            left_side = any(a0 < d_left - 1.0 and abs(a1 - d_left) <= adj_tol + div_half for a0, a1, _ in pieces)
+            right_side = any(a1 > d_right + 1.0 and abs(a0 - d_right) <= adj_tol + div_half for a0, a1, _ in pieces)
+            if not (crosses or (left_side and right_side)):
                 continue
+            shelf = pieces[0][2]
             s_bottom = float(shelf.get('height', 0.0))
             s_top = s_bottom + float(shelf.get('thickness', 19.0))
-            # y web d'une étagère = son dessous (height).
-            bounds.append((s_bottom, s_top, s_bottom))
-
-        best = None
-        for b_web, b_int, _ in bounds:
-            if b_int is None or b_web >= center_y:
-                continue
-            for t_web, _, t_int in bounds:
-                if t_int is None or t_web <= center_y:
-                    continue
-                score = (abs((b_web + t_web) / 2.0 - center_y), t_web - b_web)
-                if best is None or score < best[0]:
-                    best = (score, b_int, t_int)
-
-        if best is not None and best[0][0] <= 5.0:
-            bottom_y, top_y = best[1], best[2]
-        else:
-            below = [b_int for b_web, b_int, _ in bounds if b_int is not None and b_web < center_y]
-            above = [t_int for t_web, _, t_int in bounds if t_int is not None and t_web > center_y]
-            bottom_y = max(below) if below else 0.0
-            top_y = min(above) if above else interior_h_mm
+            if s_bottom < center_y:
+                below.append(s_top)
+            else:
+                above.append(s_bottom)
+        bottom_y = max(below) if below else 0.0
+        top_y = min(above) if above else interior_h_mm
         bottom_y = max(0.0, min(interior_h_mm, bottom_y))
         top_y = max(bottom_y, min(interior_h_mm, top_y))
         divider['bottom_y'] = bottom_y
