@@ -222,7 +222,11 @@ def _triangles_for(title: str):
         t = t.replace(a, b)
     # Joues latérales : longueur = hauteur du meuble. Bord 'gauche' (x = 0) =
     # bas du meuble, bord 'avant' (y = 0) = avant du meuble.
-    if "joue" in t and ("gauche" in t or "droite" in t):
+    # Joues gauche et droite = pièces symétriques : le bas du meuble est d'un
+    # côté de la feuille pour l'une, de l'autre côté pour l'autre.
+    if "joue" in t and "droite" in t:
+        return [("droit", False), ("avant", True)]
+    if "joue" in t and "gauche" in t:
         return [("gauche", False), ("avant", True)]
     if "joue" in t:
         return [("avant", True)]

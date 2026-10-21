@@ -535,32 +535,53 @@ def calculate_back_panel_holes(W_back, H_back, cabinet):
     return holes
 
 
-def calculate_back_panel_edge_holes(W_back, H_back):
-    """Perçages du pourtour du panneau arrière, sur ses TRANCHES.
-
-    Retourne (trous des tranches haut/bas, trous des tranches gauche/droite),
-    positions mesurées le long de chaque tranche :
-    - premier et dernier à 8 mm des angles ;
-    - espacement ~300 mm si le bord fait au moins 300 mm, ~100 mm sinon.
-    """
+def back_panel_side_dowel_positions(H_back):
+    """Tourillons des tranches gauche/droite du fond encastré, le long de sa
+    hauteur : 50 mm des angles, puis ~300 mm (~100 mm si moins de 300 mm)."""
     import math
-    edge_offset = 8.0
-    screw_diam = "⌀5/12"
+    edge = 50.0
+    H_back = float(H_back)
+    if H_back <= 2.0 * edge:
+        return [H_back / 2.0]
+    start, end = edge, H_back - edge
+    target = 100.0 if H_back < 300.0 else 300.0
+    n = max(1, round((end - start) / target))
+    step = (end - start) / n
+    return [start + i * step for i in range(n + 1)]
 
-    def _positions(length):
-        if length <= 2 * edge_offset:
-            return [length / 2.0]
-        start, end = edge_offset, length - edge_offset
-        target = 100.0 if length < 300.0 else 300.0
-        n = max(1, math.floor((end - start) / target))
-        step = (end - start) / n
-        return [start + i * step for i in range(n + 1)]
 
-    # Tranches haut/bas : position le long de la largeur (x).
-    long_holes = [{'type': 'vis', 'x': x, 'y': 0.0, 'diam_str': screw_diam} for x in _positions(float(W_back))]
-    # Tranches gauche/droite : position le long de la hauteur (y).
-    side_holes = [{'type': 'vis', 'x': 0.0, 'y': y, 'diam_str': screw_diam} for y in _positions(float(H_back))]
-    return long_holes, side_holes
+def calculate_back_panel_edge_holes(W_back, H_back):
+    """Perçages des tranches du fond encastré.
+
+    Le fond est logé derrière les traverses (profondeur - 19) et entre les
+    montants : seules ses tranches gauche/droite reçoivent des tourillons,
+    qui entrent dans les montants (voir back_panel_upright_holes). Ses
+    tranches haut/bas ne sont pas percées.
+    Retourne (trous des tranches haut/bas, trous des tranches gauche/droite).
+    """
+    side_holes = [{'type': 'tourillon', 'x': 0.0, 'y': y, 'diam_str': "⌀8/22"}
+                  for y in back_panel_side_dowel_positions(H_back)]
+    return [], side_holes
+
+
+def back_panel_upright_holes(cabinet, W_mont):
+    """Tourillons à percer sur la face intérieure des montants gauche/droit,
+    en face de ceux des tranches du fond. Retourne (trous Mg, trous Md) dans le
+    repère des feuilles de montant (Mg : avant en x = 0, Md : avant en x = W)."""
+    dims = cabinet.get('dims', {}) or {}
+    H_raw = float(dims.get('H_raw', 0.0))
+    W_raw = float(dims.get('W_raw', 0.0))
+    t_fb = float(dims.get('t_fb_raw', 18.0))
+    body = carcass_piece_dims(cabinet)
+    H_back = body['fond_H']
+    off_y = (H_raw - H_back) / 2.0                        # fond centré en hauteur
+    x_front = W_raw - FOND_REBATE_MM + t_fb / 2.0          # axe du fond, depuis l'avant
+    mg, md = [], []
+    for y in back_panel_side_dowel_positions(H_back):
+        mg.append({'type': 'tourillon', 'x': x_front, 'y': off_y + y, 'diam_str': "⌀8/22"})
+        md.append({'type': 'tourillon', 'x': float(W_mont) - x_front, 'y': off_y + y, 'diam_str': "⌀8/22"})
+    return mg, md
+
 
 def detect_collisions(cabinet):
     """Détecte les collisions entre éléments."""
