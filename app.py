@@ -45,6 +45,8 @@ from machining_logic import (
     migrate_upright_wall_chants,
     migrate_traverse_wall_chants,
     cabinet_joue_dims,
+    joue_assembly_holes,
+    apply_face_hole_depths,
     get_stacked_child_index,
     get_cabinet_door_height_raw,
     cabinet_door_is_hidden,
@@ -207,6 +209,21 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
                     "date": datetime.date.today().strftime("%d/%m/%Y"),
                 },
             }
+            # Joue latérale : tourillons en face de ceux de la face extérieure
+            # du (des) montant(s) qu'elle habille.
+            _ref_l = ref.lower()
+            if "joue" in _ref_l and ("gauche" in _ref_l or "droite" in _ref_l):
+                try:
+                    _ci = int(first_c[1:])
+                except ValueError:
+                    _ci = None
+                if _ci is not None:
+                    extra_plan["face_holes"] = apply_face_hole_depths(ref, joue_assembly_holes(
+                        st.session_state['scene_cabinets'], _ci,
+                        'gauche' if "gauche" in _ref_l else 'droite',
+                        bool(st.session_state.get('has_feet', False)),
+                        st.session_state.get('foot_height', 0.0),
+                    ))
             if extra_plan["L"] <= 0.0 or extra_plan["W"] <= 0.0:
                 continue
             insert_at = len(sheet_plans)

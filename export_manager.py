@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -974,6 +974,25 @@ def _door_hinge_rows_for_cabinet(scene, cab_idx, cab):
     return rows
 
 
+def _upright_plans(cab, upright, title, W_mont, h_side, t_lr, chants, holes, tranche_holes):
+    """Feuille(s) d'un montant principal.
+
+    Sans joue : une feuille (face intérieure). Avec une joue : deux feuilles,
+    1/2 = face intérieure (perçages habituels), 2/2 = face extérieure, vue de
+    l'extérieur (repère retourné en profondeur), avec les tourillons
+    d'assemblage montant/joue.
+    """
+    if not upright_has_joue(cab, upright):
+        return [(title, W_mont, h_side, t_lr, chants, holes, [], tranche_holes, None)]
+    outer_chants = dict(chants)
+    outer_chants['Chant Gauche'], outer_chants['Chant Droit'] = chants.get('Chant Droit', False), chants.get('Chant Gauche', False)
+    outer_holes = [dict(h, x=float(W_mont) - float(h['x'])) for h in upright_joue_holes(cab)]
+    return [
+        (f"{title} - 1/2", W_mont, h_side, t_lr, chants, holes, [], tranche_holes, None),
+        (f"{title} - 2/2", W_mont, h_side, t_lr, outer_chants, outer_holes, [], [], None),
+    ]
+
+
 def _imported_door_hinge_edges(imp_door):
     """[(x du bord côté charnières, côté de la porte par rapport à ce bord)].
 
@@ -1703,10 +1722,10 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Haut", c_trav), traverse_face_holes_right + fond_trav_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_left_upright', True):
                 c_mg = debit_piece_chants(cab, "Montant Gauche", dict(c_mont, **{"Chant Droit": False}))
-                plans.append(("Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, [], tranche_holes_mg, None))
+                plans.extend(_upright_plans(cab, "mg", "Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, tranche_holes_mg))
             if base_el.get('has_right_upright', True):
                 c_md = debit_piece_chants(cab, "Montant Droit", dict(c_mont, **{"Chant Gauche": False}))
-                plans.append(("Montant Droit (Md)", W_mont, h_side, t_lr, c_md, holes_md, [], tranche_holes_md, None))
+                plans.extend(_upright_plans(cab, "md", "Montant Droit (Md)", W_mont, h_side, t_lr, c_md, holes_md, tranche_holes_md))
             if base_el.get('has_back_panel', True):
                 plans.append(("Panneau Arrière (F)", W_back, H_back, t_fb, c_fond, holes_fond, fond_t_long, fond_t_cote, None))
 
@@ -2584,6 +2603,16 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
             holes_md, tranche_holes_md, [], None, False
         )
         all_figures.append((f"Montant Droit (C{cab_idx})", fig_md))
+
+        # Faces extérieures (2/2) des montants habillés d'une joue.
+        for _up, _lbl in (("mg", "Montant Gauche"), ("md", "Montant Droit")):
+            if upright_has_joue(cab, _up):
+                fig_out = draw_machining_view_pro_final(
+                    f"{_lbl} (C{cab_idx}) - 2/2", W_mont, h_side, t_lr,
+                    st.session_state.unit_select, proj, dict(c_mont),
+                    [dict(h, x=float(W_mont) - float(h['x'])) for h in upright_joue_holes(cab)], [], [], None, False
+                )
+                all_figures.append((f"{_lbl} (C{cab_idx}) - 2/2", fig_out))
         
         # Panneau arrière
         if base_el.get('has_back_panel', True):

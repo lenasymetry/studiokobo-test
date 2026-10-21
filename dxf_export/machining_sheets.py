@@ -215,6 +215,8 @@ def _display_title(title: str) -> str:
         t = "Fond (panneau arrière)" + t[len("Panneau Arrière (F)"):]
     t = re.sub(r"Montant Secondaire (\d+) \((C\d+)\) - ([12])/2",
                lambda m: f"Montant secondaire {m.group(1)} ({m.group(2)}) - face {m.group(3)}/2", t)
+    t = re.sub(r"(Montant (?:Gauche|Droit) \(M[gd]\)) - ([12])/2",
+               lambda m: f"{m.group(1)} - face {m.group(2)}/2" + (" (extérieure, joue)" if m.group(2) == "2" else ""), t)
     return t
 
 
@@ -253,6 +255,12 @@ def _triangles_for(title: str):
         return [("avant", False)]
     if "traverse bas" in t or "traverse haut" in t:
         return [("avant", True)]
+    # Montants principaux habillés d'une joue : 1/2 = face intérieure,
+    # 2/2 = face extérieure (vue retournée : l'avant passe de l'autre côté).
+    if "montant gauche" in t:
+        return [("avant", False), ("droit" if "2/2" in t else "gauche", True)]
+    if "montant droit" in t:
+        return [("avant", False), ("gauche" if "2/2" in t else "droit", True)]
     if "montant droit" in t or ("montant" in t and "1/2" in t):
         return [("avant", False), ("droit", True)]
     if "montant gauche" in t or ("montant" in t and "2/2" in t):

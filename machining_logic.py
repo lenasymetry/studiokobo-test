@@ -1270,3 +1270,79 @@ def debit_piece_chants(cabinet, ref_key, default):
             return {k: bool(piece.get(k, default.get(k, False))) for k in
                     ('Chant Avant', 'Chant Arrière', 'Chant Gauche', 'Chant Droit')}
     return dict(default)
+
+
+# --- Assemblage montant / joue -------------------------------------------------
+JOUE_DOWEL_EDGE = 40.0        # premier/dernier tourillon depuis les bords haut/bas
+JOUE_DOWEL_SPACING = 400.0    # espacement visé entre tourillons d'une ligne
+UPRIGHT_JOUE_SIDE = {'mg': 'gauche', 'md': 'droite'}
+
+
+def joue_dowel_heights(H):
+    """Hauteurs des tourillons montant/joue le long du montant : 40 mm des
+    bords puis ~400 mm, répartis régulièrement."""
+    H = float(H)
+    if H <= 2.0 * JOUE_DOWEL_EDGE:
+        return [H / 2.0]
+    start, end = JOUE_DOWEL_EDGE, H - JOUE_DOWEL_EDGE
+    n = max(1, round((end - start) / JOUE_DOWEL_SPACING))
+    step = (end - start) / n
+    return [start + i * step for i in range(n + 1)]
+
+
+def joue_dowel_depths(W):
+    """Les 2 lignes verticales : aux tiers de la profondeur du montant."""
+    return [float(W) / 3.0, 2.0 * float(W) / 3.0]
+
+
+def upright_has_joue(cabinet, upright):
+    """Le montant ('mg' | 'md') est-il habillé d'une joue (propre ou commune
+    avec le caisson du dessous) ?"""
+    key = UPRIGHT_JOUE_SIDE[upright]
+    span = (cabinet.get('joue_spans', {}) or {}).get(key, {}) or {}
+    if span.get('covered'):
+        return True
+    joue = (cabinet.get('joues', {}) or {}).get(key, {}) or {}
+    return bool(joue.get('enabled'))
+
+
+def upright_joue_holes(cabinet):
+    """Tourillons de la face extérieure (2/2) d'un montant habillé d'une joue,
+    repère de la feuille de montant (x = profondeur, y = hauteur)."""
+    dims = cabinet.get('dims', {}) or {}
+    return [{'type': 'tourillon', 'x': x, 'y': y, 'diam_str': "⌀8"}
+            for x in joue_dowel_depths(float(dims.get('W_raw', 0.0)))
+            for y in joue_dowel_heights(float(dims.get('H_raw', 0.0)))]
+
+
+def joue_assembly_holes(scene_cabinets, cab_index, joue_key, has_feet=False, foot_height=0.0):
+    """Tourillons d'une joue latérale, en face de ceux des montants qu'elle
+    habille (y compris le caisson du dessus pour une joue commune).
+
+    Repère de la feuille de joue : x le long de la hauteur (joue gauche : x = 0
+    en bas ; joue droite : x = 0 en haut, la feuille étant symétrique), y depuis
+    l'avant. La partie cache-pieds (sous le caisson) et l'avancée devant une
+    porte ne sont pas collées au montant : les trous en tiennent compte."""
+    if joue_key not in JOUE_SIDE_KEYS or not (0 <= cab_index < len(scene_cabinets)):
+        return []
+    cab = scene_cabinets[cab_index]
+    fileur = float((cab.get('door_props', {}) or {}).get('fileur_width', 0) or 0.0)
+    geo = cabinet_joue_dims(cab, joue_key, has_feet, foot_height, fileur)
+    if geo is None:
+        return []
+    length = float(geo['length'])
+    below = -float(geo.get('z_offset', 0.0))          # partie cache-pieds
+    front = float(geo.get('front_offset', 0.0))        # avancée devant la porte
+    covered = [(cab, 0.0)]
+    span = (cab.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
+    if span.get('span_up'):
+        child = get_stacked_child_index(scene_cabinets, cab_index)
+        if child is not None:
+            covered.append((scene_cabinets[child], float(cab.get('dims', {}).get('H_raw', 0.0))))
+    holes = []
+    for c, base in covered:
+        for h in upright_joue_holes(c):
+            z = below + base + float(h['y'])
+            x = z if joue_key == 'gauche' else length - z
+            holes.append({'type': 'tourillon', 'x': x, 'y': front + float(h['x']), 'diam_str': "⌀8"})
+    return holes
