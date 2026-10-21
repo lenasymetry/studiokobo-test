@@ -386,13 +386,29 @@ def _extents(sheet: _Sheet, s: float):
 
 
 def _choose_scale(sheet: _Sheet) -> float:
+    """Facteur de cadrage (mm modèle par mm papier) : la pièce, ses tranches et
+    ses cotes occupent la zone de dessin au plus grand, marge comprise.
+
+    Les annotations (textes, cotes, décalages) sont définies en mm papier et
+    grandissent avec le facteur : on cherche donc le point fixe
+    s = max(largeur(s) / largeur dispo, hauteur(s) / hauteur dispo)."""
     avail_w = (DRAW_X1 - DRAW_X0) - 2 * DRAW_PAD
     avail_h = (DRAW_Y1 - DRAW_Y0) - 2 * DRAW_PAD
-    for s in STANDARD_SCALES:
+    s = 1.0
+    for _ in range(60):
         minx, miny, maxx, maxy = _extents(sheet, s)
-        if (maxx - minx) / s <= avail_w and (maxy - miny) / s <= avail_h:
-            return s
-    return STANDARD_SCALES[-1]
+        need = max((maxx - minx) / avail_w, (maxy - miny) / avail_h)
+        if abs(need - s) <= 1e-4 * max(1.0, s):
+            s = need
+            break
+        s = need
+    # Sécurité : vérifier que tout tient, sinon élargir légèrement.
+    for _ in range(20):
+        minx, miny, maxx, maxy = _extents(sheet, s)
+        if (maxx - minx) <= avail_w * s + 1e-6 and (maxy - miny) <= avail_h * s + 1e-6:
+            break
+        s *= 1.02
+    return max(s, 1e-3)
 
 
 # =============================================================================
@@ -752,16 +768,25 @@ def export_machining_sheets_dxf(plans: List[dict], project_info: Optional[dict] 
     msp = doc.modelspace()
 
     total = len(plans)
-    x_cursor = 0.0
+    vp_w = (DRAW_X1 - DRAW_X0) - 2.0
+    vp_h = (DRAW_Y1 - DRAW_Y0) - 2.0
+    # Chaque pièce occupe dans l'espace objet un emplacement plus large que ce
+    # que sa fenêtre peut montrer : aucune autre pièce n'apparaît sur sa feuille.
+    slot_left = 0.0
     used_names = set()
     for i, plan in enumerate(plans, start=1):
         sheet = _Sheet(plan)
         s = _choose_scale(sheet)
         minx, miny, maxx, maxy = _extents(sheet, s)
-        ox = x_cursor - minx
-        oy = -miny
+        view_w = vp_w * s
+        view_h = vp_h * s
+        slot_margin = max(view_w, view_h)          # vide de sécurité entre emplacements
+        cx = slot_left + view_w / 2.0
+        cy = 0.0
+        ox = cx - (minx + maxx) / 2.0
+        oy = cy - (miny + maxy) / 2.0
         _draw_sheet(sheet, msp, ox, oy, s)
-        x_cursor = ox + maxx + 1000.0
+        slot_left = cx + view_w / 2.0 + slot_margin
 
         proj = plan.get("project") or {}
         corps = str(proj.get("corps_meuble", "")).replace("Caisson", "C").replace(" ", "")
@@ -775,15 +800,11 @@ def export_machining_sheets_dxf(plans: List[dict], project_info: Optional[dict] 
         used_names.add(name.upper())
         layout = _setup_layout(doc, name)
 
-        vp_w = (DRAW_X1 - DRAW_X0) - 2.0
-        vp_h = (DRAW_Y1 - DRAW_Y0) - 2.0
-        cx = ox + (minx + maxx) / 2.0
-        cy = oy + (miny + maxy) / 2.0
         vp = layout.add_viewport(
             center=((DRAW_X0 + DRAW_X1) / 2.0, (DRAW_Y0 + DRAW_Y1) / 2.0),
             size=(vp_w, vp_h),
             view_center_point=(cx, cy),
-            view_height=vp_h * s,
+            view_height=view_h,
             dxfattribs={"layer": "VIEWPORTS"},
         )
         try:
@@ -797,7 +818,8 @@ def export_machining_sheets_dxf(plans: List[dict], project_info: Optional[dict] 
             "corps_meuble": proj.get("corps_meuble", ""),
             "part_name": designation,
             "quantity": proj.get("quantity", 1),
-            "scale": "1:1" if s == 1 else f"1:{_fmt(s)}",
+            # Feuille cadrée au plus grand : ne pas mesurer sur le plan.
+            "scale": "SANS ECHELLE",
             "sheet_index": i,
             "total_sheets": total,
             "client": project_info.get("client", ""),
