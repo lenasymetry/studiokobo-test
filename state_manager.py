@@ -1961,6 +1961,17 @@ def add_vertical_divider_callback():
             'props': new_divider
         }
 
+def add_hinge_post_callback():
+    """Montant de charnière : montant secondaire de 100 mm de profondeur, posé
+    à l'avant sur toute la hauteur, pour visser les charnières d'une porte de
+    colonne. Les étagères passent derrière lui."""
+    add_vertical_divider_callback()
+    pending = st.session_state.get('pending_placement')
+    if pending and pending.get('kind') == 'vertical_divider':
+        pending['props']['hinge_post'] = True
+        pending['props']['_force_full_height'] = True
+
+
 def add_vertical_divider_double_callback():
     """Ajoute un double montant secondaire (2 montants côte à côte, sans jeu) en mode preview."""
     cabinet = get_selected_cabinet()

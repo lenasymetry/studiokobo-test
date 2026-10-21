@@ -215,6 +215,8 @@ def _display_title(title: str) -> str:
         t = "Fond (panneau arrière)" + t[len("Panneau Arrière (F)"):]
     t = re.sub(r"Montant Secondaire (\d+) \((C\d+)\) - ([12])/2",
                lambda m: f"Montant secondaire {m.group(1)} ({m.group(2)}) - face {m.group(3)}/2", t)
+    t = re.sub(r"Montant Charnière (\d+) \((C\d+)\) - ([12])/2",
+               lambda m: f"Montant de charnière {m.group(1)} ({m.group(2)}) - face {m.group(3)}/2", t)
     t = re.sub(r"(Montant (?:Gauche|Droit) \(M[gd]\)) - ([12])/2",
                lambda m: f"{m.group(1)} - face {m.group(2)}/2" + (" (extérieure, joue)" if m.group(2) == "2" else ""), t)
     return t

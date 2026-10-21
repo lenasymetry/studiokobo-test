@@ -20,7 +20,8 @@ from typing import List, Tuple, Dict
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width,
-                             cabinet_joue_dims)
+                             cabinet_joue_dims, is_hinge_post, shelf_front_setback,
+                             HINGE_POST_DEPTH_MM)
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +379,13 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
                     and div.get("bottom_y") is not None and div.get("top_y") is not None):
                 div_bot = max(0.0, float(div["bottom_y"]))
                 div_h   = max(0.0, min(H - 2*tt, float(div["top_y"])) - div_bot)
+            if is_hinge_post(div):
+                # Montant de charnière : 100 mm à l'avant, pleine hauteur.
+                add_panel(cab_node,
+                          f"Montant de charnière {j+1} – {cab_label}",
+                          ox + div_x - div_th / 2, oy, oz + tt,
+                          div_th, HINGE_POST_DEPTH_MM, H - 2*tt)
+                continue
             add_panel(cab_node,
                       f"Séparateur {j+1} – {cab_label}",
                       ox + div_x - div_th / 2, oy, oz + tt + div_bot,
@@ -403,11 +411,13 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
             # traverse - 19mm (pour ne pas transpercer le Fond).
             sh_w = L - 2 * tl
             sh_x = ox + tl
-            sh_depth = max(0.0, W - 19.0)
+            # Étagère qui passe derrière un montant de charnière : reculée.
+            sh_back = shelf_front_setback(cabinet, s)
+            sh_depth = max(0.0, W - 19.0 - sh_back)
 
             add_panel(cab_node,
                       f"Étagère {j+1} – {cab_label}",
-                      sh_x, oy, sh_z,
+                      sh_x, oy + sh_back, sh_z,
                       sh_w, max(0.0, sh_depth), sh_th)
 
         # ── Porte(s) importee(s) explicites ─────────────────────────────

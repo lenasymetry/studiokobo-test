@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1047,6 +1047,15 @@ def _hinge_panel_for_edge(cab, hinge_x, door_side, t_lr, L_raw):
     return best[1] if best else None
 
 
+def _divider_depth(cab, div_idx, default_depth):
+    """Profondeur de la feuille d'un montant secondaire (100 mm pour un
+    montant de charnière)."""
+    divs = cab.get('vertical_dividers', []) or []
+    if 0 <= div_idx < len(divs) and is_hinge_post(divs[div_idx]):
+        return HINGE_POST_DEPTH_MM
+    return float(default_depth)
+
+
 def _add_rack_holes(target, rack_holes):
     """Ajoute des trous de crémaillère sans doublon : plusieurs étagères
     mobiles d'une même zone partagent la même série de trous."""
@@ -1099,7 +1108,10 @@ def _divider_traverse_holes(cab, L_trav, t_lr, t_tb, W_raw, t_fb, interior_h):
     bottom_holes = []
     top_holes = []
     for div in cab.get('vertical_dividers', []) or []:
-        holes = get_traverse_face_holes_for_divider(L_trav, div['position_x'], t_lr, t_tb, W_raw, t_fb)
+        if is_hinge_post(div):
+            holes = hinge_post_traverse_face_holes(div['position_x'], t_lr)
+        else:
+            holes = get_traverse_face_holes_for_divider(L_trav, div['position_x'], t_lr, t_tb, W_raw, t_fb)
         bottom, top = _divider_vertical_span(div, interior_h)
         if bottom <= 0.5:
             bottom_holes.extend(holes)
@@ -1429,6 +1441,15 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     s_type = s.get('shelf_type', 'mobile')
                     s_th = float(s.get('thickness', 19.0))
                     zone_id = s.get('zone_id', None)
+                    # Étagère qui passe derrière un montant de charnière :
+                    # reculée de 101 mm, sa trame part de son propre avant.
+                    s_setback = shelf_front_setback(cab, s)
+                    if s_setback > 0:
+                        _v, _d = calculate_hole_positions(W_inner - s_setback)
+                        ys_vis_s = [x + s_setback for x in _v]
+                        ys_dowel_s = [x + s_setback for x in _d]
+                    else:
+                        ys_vis_s, ys_dowel_s = ys_vis_sf, ys_dowel_sf
                     
                     if s_type == 'fixe':
                         L_shelf = float(L_trav)
@@ -1449,12 +1470,12 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         if zone_x_min is not None and zone_x_max is not None:
                             # Montant gauche principal si la zone commence au montant gauche
                             if abs(zone_x_min - t_lr) < 1.0:
-                                for x in ys_vis_sf: holes_mg.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
-                                for x in ys_dowel_sf: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
+                                for x in ys_vis_s: holes_mg.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
+                                for x in ys_dowel_s: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
                             # Montant droit principal si la zone se termine au montant droit
                             if abs(zone_x_max - (L_raw - t_lr)) < 1.0:
-                                for x in ys_vis_sf: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'diam_str':"⌀3"})
-                                for x in ys_dowel_sf: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'diam_str':"⌀8/10"})
+                                for x in ys_vis_s: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'diam_str':"⌀3"})
+                                for x in ys_dowel_s: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'diam_str':"⌀8/10"})
                             
                             # Montants secondaires qui touchent cette étagère fixe
                             for div_idx, div in enumerate(cab['vertical_dividers']):
@@ -1467,27 +1488,27 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                                 touches_right_face = abs(zone_x_min - div_right_edge) < 1.0
                                 
                                 if touches_left_face:
-                                    for x in ys_vis_sf:
-                                        divider_element_holes_left[div_idx].append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
-                                    for x in ys_dowel_sf:
-                                        divider_element_holes_left[div_idx].append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
+                                    for x in ys_vis_s:
+                                        divider_element_holes_left[div_idx].append({'type':'vis','x':W_inner - x,'y':yc_val,'diam_str':"⌀3"})
+                                    for x in ys_dowel_s:
+                                        divider_element_holes_left[div_idx].append({'type':'tourillon','x':W_inner - x,'y':yc_val,'diam_str':"⌀8/10"})
                                 if touches_right_face:
-                                    for x in ys_vis_sf:
+                                    for x in ys_vis_s:
                                         divider_element_holes_right[div_idx].append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
-                                    for x in ys_dowel_sf:
+                                    for x in ys_dowel_s:
                                         divider_element_holes_right[div_idx].append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
                         else:
                             # Étagère sur tout le caisson : trous sur les deux montants principaux
-                            for x in ys_vis_sf: holes_mg.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
-                            for x in ys_dowel_sf: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
-                            for x in ys_vis_sf: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'diam_str':"⌀3"})
-                            for x in ys_dowel_sf: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'diam_str':"⌀8/10"})
+                            for x in ys_vis_s: holes_mg.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
+                            for x in ys_dowel_s: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
+                            for x in ys_vis_s: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'diam_str':"⌀3"})
+                            for x in ys_dowel_s: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'diam_str':"⌀8/10"})
                         
                         # Trous de liaison dans la tranche de l'étagère fixe
                         # Regle: uniquement des tourillons, avec extremites a 25 mm de chaque bord
                         # sur la profondeur reelle de l'etagere fixe (identique traverse: W_raw).
                         tr = []
-                        shelf_width = float(W_inner)
+                        shelf_width = float(W_inner) - s_setback
                         _, ys_dowel_shelf = calculate_hole_positions(shelf_width)
                         for y_pos in ys_dowel_shelf:
                             tr.append({'type':'tourillon','x':s_th/2,'y':y_pos,'diam_str':"⌀8/22"})
@@ -1513,8 +1534,10 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         _rx_max = zone_x_max if zone_x_max is not None else L_raw - t_lr
                         _ry_min, _ry_max = mobile_shelf_rack_y_range(
                             cab, _rx_min, _rx_max, t_tb + float(s.get('height', 0.0)) + s_th / 2.0)
-                        rack_main = mobile_shelf_rack_holes(W_mont, _ry_min, _ry_max)
-                        rack_div = mobile_shelf_rack_holes(W_inner, _ry_min, _ry_max)
+                        rack_main = mobile_shelf_rack_holes(W_mont, _ry_min, _ry_max, front=s_setback)
+                        rack_div = mobile_shelf_rack_holes(W_inner, _ry_min, _ry_max, front=s_setback)
+                        # Montant droit : avant de la feuille en x = W_mont.
+                        rack_md = [dict(h, x=_x_md(h['x'])) for h in rack_main]
 
                         if zone_x_min is not None and zone_x_max is not None:
                             # Montant gauche si la zone commence au montant gauche
@@ -1522,11 +1545,11 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                                 _add_rack_holes(holes_mg, rack_main)
                             # Montant droit si la zone se termine au montant droit
                             if abs(zone_x_max - (L_raw - t_lr)) < 1.0:
-                                _add_rack_holes(holes_md, rack_main)
+                                _add_rack_holes(holes_md, rack_md)
                         else:
                             # Étagère mobile sur tout le caisson : trous sur les deux montants principaux
                             _add_rack_holes(holes_mg, rack_main)
-                            _add_rack_holes(holes_md, rack_main)
+                            _add_rack_holes(holes_md, rack_md)
                         
                         # Montants secondaires qui touchent cette étagère
                         if zone_x_min is not None and zone_x_max is not None:
@@ -1540,7 +1563,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                                 touches_right_face = abs(zone_x_min - div_right_edge) < 1.0
                                 
                                 if touches_left_face:
-                                    _add_rack_holes(divider_element_holes_left[div_idx], rack_div)
+                                    _add_rack_holes(divider_element_holes_left[div_idx], [dict(h, x=W_inner - h['x']) for h in rack_div])
                                 if touches_right_face:
                                     _add_rack_holes(divider_element_holes_right[div_idx], rack_div)
                         # Pour les étagères mobiles, pas de trous dans la tranche
@@ -1549,7 +1572,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     
                     # W_shelf: étagère fixe = même largeur que traverse, mobile = largeur réduite.
                     # Même largeur que la feuille de débit (profondeur - 19).
-                    W_shelf = float(W_inner)
+                    W_shelf = float(W_inner) - s_setback
                     c_shelf = {"Chant Avant":True, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":False}
                     th_shelf = fixed_shelf_tr_draw.get(s_idx, [])
                     fh_shelf = []
@@ -1598,7 +1621,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 elif kind == 'md':
                     xs, dest = (W_mont - 20.0, W_mont - 52.0), holes_md
                 elif kind == 'div_left':
-                    xs, dest = (W_inner - 20.0, W_inner - 52.0), divider_element_holes_left[div_idx]
+                    _dw = _divider_depth(cab, div_idx, W_inner)
+                    xs, dest = (_dw - 20.0, _dw - 52.0), divider_element_holes_left[div_idx]
                 else:
                     xs, dest = (20.0, 52.0), divider_element_holes_right[div_idx]
                 for x in xs:
@@ -1621,7 +1645,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         elif kind == 'md':
                             dest, xs = holes_md, (W_mont - 20.0, W_mont - 52.0)
                         elif kind == 'div_left':
-                            dest, xs = divider_element_holes_left[div_idx], (W_inner - 20.0, W_inner - 52.0)
+                            _dw = _divider_depth(cab, div_idx, W_inner)
+                            dest, xs = divider_element_holes_left[div_idx], (_dw - 20.0, _dw - 52.0)
                         else:
                             dest, xs = divider_element_holes_right[div_idx], (20.0, 52.0)
                         for x in xs:
@@ -1934,19 +1959,28 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             if 'vertical_dividers' in cab and cab['vertical_dividers']:
                 for div_idx, div in enumerate(cab['vertical_dividers']):
                     div_th = div.get('thickness', 19.0)
-                    div_w = W_inner
+                    hinge_post = is_hinge_post(div)
+                    # Montant de charnière : 100 mm de profondeur, posé à l'avant.
+                    div_w = HINGE_POST_DEPTH_MM if hinge_post else W_inner
                     div_h, div_holes_left = _divider_plan_height_and_holes(div, h_side, t_tb, divider_element_holes_left[div_idx])
                     _, div_holes_right = _divider_plan_height_and_holes(div, h_side, t_tb, divider_element_holes_right[div_idx])
                     
                     # Trous sur les tranches haut et bas
-                    div_tranche_holes = get_vertical_divider_tranche_holes(W_inner, div_th)
+                    div_tranche_holes = get_vertical_divider_tranche_holes(div_w, div_th)
                     
-                    c_div_12 = {"Chant Avant":False, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":True}
-                    c_div_22 = {"Chant Avant":False, "Chant Arrière":False, "Chant Gauche":True, "Chant Droit":False}
+                    if hinge_post:
+                        # Chant avant + chant arrière (tranche visible à l'intérieur).
+                        c_div_12 = {"Chant Avant":False, "Chant Arrière":False, "Chant Gauche":True, "Chant Droit":True}
+                        c_div_22 = dict(c_div_12)
+                        div_label = f"Montant Charnière {div_idx+1}"
+                    else:
+                        c_div_12 = {"Chant Avant":False, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":True}
+                        c_div_22 = {"Chant Avant":False, "Chant Arrière":False, "Chant Gauche":True, "Chant Droit":False}
+                        div_label = f"Montant Secondaire {div_idx+1}"
                     
                     # TOUJOURS générer 2 plans (1/2 et 2/2) pour chaque montant secondaire
-                    plans.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 1/2", div_w, div_h, div_th, c_div_12, div_holes_left, div_tranche_holes, [], None))
-                    plans.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 2/2", div_w, div_h, div_th, c_div_22, div_holes_right, div_tranche_holes, [], None))
+                    plans.append((f"{div_label} (C{cab_idx}) - 1/2", div_w, div_h, div_th, c_div_12, div_holes_left, div_tranche_holes, [], None))
+                    plans.append((f"{div_label} (C{cab_idx}) - 2/2", div_w, div_h, div_th, c_div_22, div_holes_right, div_tranche_holes, [], None))
 
             dxf_expected_count += len(plans)
             for item in plans:

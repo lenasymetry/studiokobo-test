@@ -46,6 +46,9 @@ from machining_logic import (
     migrate_traverse_wall_chants,
     cabinet_joue_dims,
     joue_drawer_advance_available,
+    is_hinge_post,
+    shelf_front_setback,
+    HINGE_POST_DEPTH_MM,
     joue_assembly_holes,
     apply_face_hole_depths,
     get_stacked_child_index,
@@ -1091,7 +1094,8 @@ def calculate_all_project_parts():
                 s_th = float(s.get('thickness', 19.0))
                 # Règle demandée: étagère = longueur de la traverse, largeur de la traverse - 19 mm.
                 dim_L = L_traverse
-                dim_W = W_inner
+                # Étagère qui passe derrière un montant de charnière : reculée.
+                dim_W = W_inner - shelf_front_setback(cabinet, s)
                 
                 shelf_dims_cache[f"C{i}_S{s_idx}"] = (dim_L, dim_W)
                 
@@ -1156,6 +1160,12 @@ def calculate_all_project_parts():
                 
                 cav, car, cg, cd = get_automatic_edge_banding("Montant")
                 divider_ref = f"Montant Secondaire {div_idx+1} (C{i})"
+                if is_hinge_post(div):
+                    # Montant de charnière : 100 mm à l'avant, chant avant + arrière.
+                    div_w = HINGE_POST_DEPTH_MM
+                    div_h = h_side - 2 * t_tb
+                    cav, car, cg, cd = True, True, False, False
+                    divider_ref = f"Montant de charnière {div_idx+1} (C{i})"
                 usinage_divider = "CF plan" if has_holes_for_piece("Montant Secondaire", cabinet) else ""
                 all_parts.append({
                     "Lettre": f"C{i}-MS{div_idx+1}",
@@ -2719,6 +2729,11 @@ with col1:
                     c_div_add1, c_div_add2 = st.columns(2)
                     c_div_add1.button("➕ Ajouter un Montant Secondaire", key=f"add_divider_{idx}", on_click=add_vertical_divider_callback, use_container_width=True)
                     c_div_add2.button("➕ Double Montants Secondaires", key=f"add_double_divider_{idx}", on_click=add_vertical_divider_double_callback, use_container_width=True)
+                    st.button("🚪 Ajouter un Montant de charnière (100 mm)", key=f"add_hinge_post_{idx}",
+                              on_click=add_hinge_post_callback, use_container_width=True,
+                              help="Montant de 100 mm de profondeur posé à l'avant, sur toute la hauteur, "
+                                   "pour recevoir les charnières d'une porte sur une seule colonne. "
+                                   "Les étagères qui le croisent passent derrière (reculées de 101 mm).")
                     
                     # --- POSE EN 2 TEMPS (APERÇU -> VALIDER) : MONTANT SECONDAIRE ---
                     pending = st.session_state.get('pending_placement')
@@ -2726,6 +2741,8 @@ with col1:
                         p = pending.get('props', {})
                         is_double = pending.get('kind') == 'vertical_divider_double' or bool(p.get('double'))
                         txt_title = "✅ Valider la position (Double montant secondaire)" if is_double else "✅ Valider la position (Montant secondaire)"
+                        if p.get('hinge_post'):
+                            txt_title = "✅ Valider la position (Montant de charnière 100 mm)"
                         # Panneau de pose rendu dans un emplacement effaçable : valider ou annuler
                         # le retire directement, SANS `st.rerun()`. Le clic sur le bouton a déjà
                         # provoqué un rerun ; en relancer un second remontait la page en haut et
@@ -2851,7 +2868,7 @@ with col1:
                     
                     if 'vertical_dividers' in selected_cab and selected_cab['vertical_dividers']:
                         for i, div in enumerate(selected_cab['vertical_dividers']):
-                            with st.expander(f"🔧 Montant Secondaire {i+1}"):
+                            with st.expander(f"🚪 Montant de charnière {i+1} (100 mm)" if is_hinge_post(div) else f"🔧 Montant Secondaire {i+1}"):
                                 # Le premier montant (i == 0) peut toujours être placé librement dans la Zone 0 originale
                                 # Les montants suivants doivent être placés dans une zone existante
                                 is_first_divider = (i == 0)
@@ -3550,7 +3567,8 @@ with col2:
                         div_z = o[2] + tt + (div_bottom_y_mm * unit_factor)
                         div_color = PARTIAL_DIVIDER_COLOR if div_height_mm < (interior_h_mm - 0.5) else DIVIDER_COLOR
                         fig3d.add_trace(cuboid_mesh_for(
-                            div_th, W - tb, div_height_mm * unit_factor,
+                            div_th, (HINGE_POST_DEPTH_MM * unit_factor if is_hinge_post(div) else W - tb),
+                            div_height_mm * unit_factor,
                             (o[0] + div_x - div_th/2, o[1], div_z),
                             color=("#666666" if is_preview else div_color),
                             opacity=(0.35 if is_preview else BODY_OPACITY),
@@ -3562,7 +3580,7 @@ with col2:
                     # Le montant va de (div_x_mm - div_th_mm/2) à (div_x_mm + div_th_mm/2) en mm
                     # Profondeur : W - tb pour ne pas traverser le panneau arrière
                     fig3d.add_trace(cuboid_mesh_for(
-                        div_th, W - tb, H-2*tt,
+                        div_th, (HINGE_POST_DEPTH_MM * unit_factor if is_hinge_post(div) else W - tb), H-2*tt,
                         (o[0] + div_x - div_th/2, o[1], o[2] + tt),
                         color=("#666666" if is_preview else DIVIDER_COLOR),
                         opacity=(0.35 if is_preview else BODY_OPACITY),
@@ -4034,9 +4052,11 @@ with col2:
                         shelf_color = BODY_COLOR
                         shelf_opacity = BODY_OPACITY
 
-                    shelf_depth = W
+                    # Étagère qui passe derrière un montant de charnière : reculée.
+                    shelf_setback = shelf_front_setback(cab_render, s) * unit_factor
+                    shelf_depth = W - shelf_setback
                     fig3d.add_trace(cuboid_mesh_for(
-                        shelf_width, max(0.0, shelf_depth - 0.01), s['thickness']*unit_factor, (shelf_x_start, o[1], sh_z),
+                        shelf_width, max(0.0, shelf_depth - 0.01), s['thickness']*unit_factor, (shelf_x_start, o[1] + shelf_setback, sh_z),
                         color=shelf_color,
                         opacity=shelf_opacity,
                         showlegend=False

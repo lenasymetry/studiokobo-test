@@ -26,7 +26,8 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import to_rgba
 from PIL import Image, ImageDraw
 from machining_logic import (calculate_all_zones_2d, get_cabinet_door_height_raw,
-                             get_hinge_y_positions,
+                             get_hinge_y_positions, is_hinge_post, shelf_front_setback,
+                             HINGE_POST_DEPTH_MM,
                              cabinet_door_is_hidden, get_door_vertical_geometry,
                              get_cache_pied_drop, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width,
@@ -779,7 +780,7 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
             roy,
             roz + tt + div_bottom,
             div_th,
-            W - tb,
+            HINGE_POST_DEPTH_MM if is_hinge_post(div) else W - tb,
             div_h,
             skip=bf_skip,
         )
@@ -944,13 +945,14 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
     for s in cab.get("shelves", []) or []:
         sh_z = roz + tt + float(s.get("height", 0.0))
         sh_th = float(s.get("thickness", 19.0))
+        sh_back = shelf_front_setback(cab, s)   # derrière un montant de charnière
         _add_box(
             boxes,
             rox + tl,
-            roy,
+            roy + sh_back,
             sh_z,
             max(0.0, render_L - 2.0 * tl),
-            max(0.0, W - 19.0),
+            max(0.0, W - 19.0 - sh_back),
             sh_th,
             shelf=True,
             skip=bf_skip,

@@ -416,8 +416,8 @@ def check_element_placement_validity(element, all_zones_2d, cabinet, element_typ
         
         # Vérifier les montants secondaires
         for div in cabinet.get('vertical_dividers', []):
-            if div.get('_preview', False):
-                continue
+            if div.get('_preview', False) or div.get('hinge_post'):
+                continue  # l'étagère passe derrière un montant de charnière
             div_x = div['position_x']
             div_th = div.get('thickness', 19.0)
             div_x_min = div_x - div_th / 2.0

@@ -488,16 +488,17 @@ def mobile_shelf_rack_y_range(cabinet, x_min, x_max, y_shelf):
     return t_tb, H - t_tb
 
 
-def mobile_shelf_rack_holes(panel_w, y_min, y_max):
-    """Trous de crémaillère d'une face : 2 rangées (x = 50 et panel_w - 50),
+def mobile_shelf_rack_holes(panel_w, y_min, y_max, front=0.0):
+    """Trous de crémaillère d'une face : 2 rangées (x = front + 50 et
+    panel_w - 50 ; `front` = recul de l'étagère derrière un montant de charnière),
     pas de 64 mm, série centrée dans [y_min, y_max] avec au moins 32 mm de
     marge à chaque bout."""
     span = float(y_max) - float(y_min) - 2.0 * MOBILE_RACK_END_MARGIN_MM
-    if span < 0.0 or float(panel_w) <= 2.0 * MOBILE_RACK_EDGE_MM:
+    if span < 0.0 or float(panel_w) - float(front) <= 2.0 * MOBILE_RACK_EDGE_MM:
         return []
     n = int(span // MOBILE_RACK_PITCH_MM) + 1
     y0 = float(y_min) + (float(y_max) - float(y_min) - (n - 1) * MOBILE_RACK_PITCH_MM) / 2.0
-    xs = (MOBILE_RACK_EDGE_MM, float(panel_w) - MOBILE_RACK_EDGE_MM)
+    xs = (float(front) + MOBILE_RACK_EDGE_MM, float(panel_w) - MOBILE_RACK_EDGE_MM)
     return [{'type': 'etagere_taquet', 'x': x, 'y': y0 + i * MOBILE_RACK_PITCH_MM, 'diam_str': MOBILE_RACK_DIAM}
             for x in xs for i in range(n)]
 
@@ -525,6 +526,8 @@ def calculate_back_panel_holes(W_back, H_back, cabinet):
     # Trous de tourillons pour les montants secondaires (dans l'axe du montant,
     # répartis sur la hauteur réelle du montant).
     for div in cabinet.get('vertical_dividers', []) or []:
+        if is_hinge_post(div):
+            continue  # montant de charnière : 100 mm à l'avant, n'atteint pas le fond
         # position_x = axe du montant, mesuré depuis le bord gauche du caisson.
         x_rel = float(div['position_x']) - back_off_x
 
@@ -662,19 +665,70 @@ def detect_collisions(cabinet):
     # Stub pour l'instant
     return []
 
-def calculate_zones_from_dividers(cabinet):
-    """Calcule les zones X (colonnes) créées par les montants secondaires."""
+# Montant de charnière : montant secondaire de 100 mm de profondeur, posé à
+# l'avant, qui sert uniquement à recevoir les charnières d'une porte de
+# colonne. Il ne découpe pas le caisson pour les étagères : celles qui le
+# croisent passent derrière (reculées de 100 mm + 1 mm de jeu).
+HINGE_POST_DEPTH_MM = 100.0
+HINGE_POST_SHELF_SETBACK_MM = HINGE_POST_DEPTH_MM + 1.0
+
+
+def is_hinge_post(div):
+    return bool((div or {}).get('hinge_post'))
+
+
+def hinge_post_traverse_face_holes(div_x, t_lr):
+    """Perçages des traverses (faces) pour un montant de charnière : trame de
+    100 mm -> tourillons à 25 et 75 mm de l'avant, vis à 50 mm."""
+    ys_vis, ys_dowel = calculate_hole_positions(HINGE_POST_DEPTH_MM)
+    x_rel = float(div_x) - float(t_lr)
+    return ([{'type': 'tourillon', 'x': x_rel, 'y': y, 'diam_str': "⌀8/10"} for y in ys_dowel]
+            + [{'type': 'vis', 'x': x_rel, 'y': y, 'diam_str': "⌀3"} for y in ys_vis])
+
+
+def shelf_x_span(cabinet, shelf):
+    """Étendue (x_min, x_max) d'une étagère, repère caisson."""
+    dims = cabinet.get('dims', {}) or {}
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    L_raw = float(dims.get('L_raw', 0.0))
+    x0, w = shelf.get('stored_shelf_x_start_mm'), shelf.get('stored_shelf_width_mm')
+    if x0 is not None and w is not None and float(w) > 0:
+        return float(x0), float(x0) + float(w)
+    z = shelf.get('stored_zone_coords') or {}
+    if z.get('x_min') is not None and z.get('x_max') is not None:
+        return float(z['x_min']), float(z['x_max'])
+    return t_lr, L_raw - t_lr
+
+
+def shelf_front_setback(cabinet, shelf):
+    """Recul de l'étagère depuis l'avant : 101 mm si elle passe derrière un
+    montant de charnière, sinon 0."""
+    x_min, x_max = shelf_x_span(cabinet, shelf)
+    for div in cabinet.get('vertical_dividers', []) or []:
+        if is_hinge_post(div) and not div.get('_preview') \
+                and x_min + 0.5 < float(div.get('position_x', 0.0)) < x_max - 0.5:
+            return HINGE_POST_SHELF_SETBACK_MM
+    return 0.0
+
+
+def calculate_zones_from_dividers(cabinet, include_hinge_posts=False):
+    """Calcule les zones X (colonnes) créées par les montants secondaires.
+
+    Les montants de charnière ne comptent que pour les colonnes de porte
+    (`include_hinge_posts=True`, voir `door_columns`)."""
     zones = []
     dims = cabinet['dims']
     L_raw = dims['L_raw']
     t_lr = dims['t_lr_raw']
-    
-    if 'vertical_dividers' not in cabinet or not cabinet['vertical_dividers']:
+    dividers = [d for d in (cabinet.get('vertical_dividers') or [])
+                if include_hinge_posts or not is_hinge_post(d)]
+
+    if not dividers:
         # Pas de montants secondaires : une seule zone
         zones.append({'id': 0, 'x_min': t_lr, 'x_max': L_raw - t_lr})
         return zones
-    
-    dividers = sorted(cabinet['vertical_dividers'], key=lambda d: d['position_x'])
+
+    dividers = sorted(dividers, key=lambda d: d['position_x'])
     x_min = t_lr
     
     for idx, div in enumerate(dividers):
@@ -1080,7 +1134,7 @@ def door_columns(cabinet):
     secondaires), sur toute la hauteur. [{'x_min', 'x_max'}] en mm, repère
     caisson (faces intérieures des montants)."""
     return [{'x_min': float(z['x_min']), 'x_max': float(z['x_max'])}
-            for z in calculate_zones_from_dividers(cabinet)]
+            for z in calculate_zones_from_dividers(cabinet, include_hinge_posts=True)]
 
 
 def door_zone_span(cabinet):
