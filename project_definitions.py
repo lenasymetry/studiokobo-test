@@ -126,9 +126,9 @@ def get_joue_dimensions(joue_key, dims, has_feet=False, foot_height=0.0,
     laquelle elle est associée et en reprend donc les cotes —
       * joue gauche / droite -> le montant correspondant
         (longueur = hauteur du caisson, largeur = profondeur, épaisseur = t_lr) ;
-      * joue dessus / dessous -> la traverse correspondante
-        (longueur = entre-montants, largeur = profondeur, épaisseur = t_tb),
-        d'où un décalage en X d'une épaisseur de montant.
+      * joue dessus / dessous -> posée sur / sous le caisson
+        (longueur = largeur totale du meuble hors fileur, largeur = profondeur,
+        épaisseur = t_tb), sans décalage en X.
 
     Si le meuble est sur pieds, les joues gauche/droite descendent jusqu'au sol
     pour cacher les pieds, comme une porte cache-pieds : la longueur est
@@ -147,7 +147,7 @@ def get_joue_dimensions(joue_key, dims, has_feet=False, foot_height=0.0,
     if joue_key in ('gauche', 'droite'):
         base_length, thickness, x_offset = H, t_lr, 0.0
     else:
-        base_length, thickness, x_offset = max(0.0, L_eff - 2.0 * t_lr), t_tb, t_lr
+        base_length, thickness, x_offset = L_eff, t_tb, 0.0
 
     length, z_offset = get_joue_length_and_z_offset(
         joue_key, base_length, has_feet, foot_height
