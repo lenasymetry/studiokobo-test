@@ -158,8 +158,8 @@ def get_plinthe_groups(scene_cabinets):
             'index': i,
             'x_start': float(origins[i][0]),
             'x_end': float(origins[i][0]) + L_raw,
-            # Largeur réellement habillée : le fileur mange la façade.
-            'width': max(0.0, L_raw - fileur),
+            # Largeur du meuble telle que saisie par l'utilisateur.
+            'width': L_raw,
             't_lr': float(dims.get('t_lr_raw', 19.0) or 0.0),
             'material': str(cab.get('material_body', 'Matière Corps')),
         })
@@ -187,13 +187,11 @@ def get_plinthe_groups(scene_cabinets):
         })
 
     for group in groups:
-        # Même règle que pour un caisson isolé, appliquée à l'ensemble : largeur
-        # habillée moins les deux montants d'extrémité, plus la réserve de pose.
-        group['length'] = max(
-            0.0,
-            group.pop('_width') - group.pop('_t_lr_left') - group.pop('_t_lr_right')
-            + PLINTHE_END_ALLOWANCE,
-        )
+        # Longueur = largeur du meuble saisie (somme des caissons pour une
+        # plinthe commune), sans les joues ni réserve de découpe.
+        group['length'] = max(0.0, group.pop('_width'))
+        group.pop('_t_lr_left', None)
+        group.pop('_t_lr_right', None)
         group.pop('_x_end', None)
         group['width'] = PLINTHE_WIDTH
         group['thickness'] = PLINTHE_THICKNESS
@@ -862,6 +860,7 @@ def apply_face_hole_depths(panel_name, face_holes):
 
     - Porte : cuvette de charnière ⌀35 et ses 2 vis ⌀8 -> profondeur 13.
     - Toute autre pièce : tout trou ⌀8 -> profondeur 14.
+    - Partout : vis ⌀3 -> profondeur 14.
     Retourne une nouvelle liste (les dictionnaires d'origine ne sont pas modifiés).
     """
     import re as _re
@@ -880,6 +879,26 @@ def apply_face_hole_depths(panel_name, face_holes):
                 h["diam_str"] = "⌀8/13"
             elif not is_door and abs(diam - 8.0) < 0.01:
                 h["diam_str"] = "⌀8/14"
+            elif abs(diam - 3.0) < 0.01:
+                h["diam_str"] = "⌀3/14"
+        out.append(h)
+    return out
+
+
+def apply_tranche_hole_depths(tranche_holes):
+    """Profondeurs imposées des perçages de TRANCHE : tourillon ⌀8 ->
+    profondeur 25, vis ⌀3 -> profondeur 14."""
+    import re as _re
+    out = []
+    for h in tranche_holes or []:
+        h = dict(h)
+        m = _re.search(r"(\d+(?:[.,]\d+)?)", str(h.get("diam_str", "")))
+        diam = float(m.group(1).replace(",", ".")) if m else None
+        if diam is not None:
+            if abs(diam - 8.0) < 0.01:
+                h["diam_str"] = "⌀8/25"
+            elif abs(diam - 3.0) < 0.01:
+                h["diam_str"] = "⌀3/14"
         out.append(h)
     return out
 
@@ -1124,6 +1143,16 @@ def door_cover_span(cabinet):
 
 
 JOUE_SIDE_KEYS = ('gauche', 'droite')
+# Une joue de meuble à porte avance pour couvrir l'épaisseur de la porte et le
+# jeu porte/montant.
+JOUE_DOOR_FRONT_EXTENSION = 20.0
+
+
+def cabinet_has_front_door(cabinet):
+    """Le caisson a-t-il une porte en façade (propre, importée, de colonne ou
+    commune avec le caisson du dessous) ?"""
+    dp = cabinet.get('door_props', {}) or {}
+    return bool(dp.get('has_door') or cabinet.get('imported_doors') or cabinet_door_is_hidden(cabinet))
 
 
 def apply_joue_spans(scene_cabinets):
@@ -1153,7 +1182,11 @@ def apply_joue_spans(scene_cabinets):
             if is_upper:
                 pj = (scene_cabinets[parent].get('joues', {}) or {}).get(key, {}) or {}
                 covered = bool(pj.get('enabled') and pj.get('span_up'))
+            front_door = cabinet_has_front_door(cab)
+            if span_up:
+                front_door = front_door or cabinet_has_front_door(scene_cabinets[child])
             spans[key] = {
+                'front_door': front_door,
                 'span_height': span_h,
                 'span_up': span_up,
                 'covered': covered,
@@ -1171,6 +1204,7 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
     joue = (cabinet.get('joues', {}) or {}).get(joue_key, {}) or {}
     dims = dict(cabinet.get('dims', {}) or {})
     feet = False
+    front_door = cabinet_has_front_door(cabinet)
     if joue_key in JOUE_SIDE_KEYS:
         span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
         if span.get('covered'):
@@ -1180,7 +1214,13 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
         # les pieds uniquement si le caisson repose au sol.
         feet = bool(has_feet) and joue.get('model', 'floor_length') == 'floor_length' \
             and span.get('on_floor', True)
-    return get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)
+        front_door = bool(span.get('front_door', front_door))
+    geo = get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)
+    # Meuble à porte : la joue avance de 20 mm pour couvrir la porte.
+    ext = JOUE_DOOR_FRONT_EXTENSION if front_door else 0.0
+    geo['width'] = float(geo['width']) + ext
+    geo['front_offset'] = ext
+    return geo
 
 
 # Tranche arrière (contre le mur) d'un montant principal, dans le repère commun

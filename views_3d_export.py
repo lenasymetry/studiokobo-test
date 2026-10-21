@@ -968,16 +968,17 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
             continue  # recouverte par la joue commune du caisson du dessous
         jw, jl, jt = geo["width"], geo["length"], geo["thickness"]
         jx_offset, jz_offset = geo["x_offset"], geo["z_offset"]
+        jy0 = roy - float(geo.get("front_offset", 0.0))   # meuble à porte : joue avancée
         if jw <= 0.0 or jl <= 0.0 or jt <= 0.0:
             continue
         if side == "left":
-            _add_box(boxes, rox - jt, roy, roz + jz_offset, jt, jw, jl, alpha=0.75, skip=bf_skip)
+            _add_box(boxes, rox - jt, jy0, roz + jz_offset, jt, jw, jl, alpha=0.75, skip=bf_skip)
         elif side == "right":
-            _add_box(boxes, rox + render_L, roy, roz + jz_offset, jt, jw, jl, alpha=0.75, skip=bf_skip)
+            _add_box(boxes, rox + render_L, jy0, roz + jz_offset, jt, jw, jl, alpha=0.75, skip=bf_skip)
         elif side == "top":
-            _add_box(boxes, rox + jx_offset, roy, roz + H, jl, jw, jt, alpha=0.75, skip=bf_skip)
+            _add_box(boxes, rox + jx_offset, jy0, roz + H, jl, jw, jt, alpha=0.75, skip=bf_skip)
         elif side == "bottom":
-            _add_box(boxes, rox + jx_offset, roy, roz - jt, jl, jw, jt, alpha=0.75, skip=bf_skip)
+            _add_box(boxes, rox + jx_offset, jy0, roz - jt, jl, jw, jt, alpha=0.75, skip=bf_skip)
 
     # Recadrage sur la silhouette réelle : à faire ICI, une fois toutes les
     # boîtes empilées (y compris la porte ouverte, qui est ce qui faisait le

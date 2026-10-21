@@ -5,7 +5,7 @@ import base64
 import os
 import io
 
-from machining_logic import is_drawer_slide_hole, merge_drawer_panel_holes, apply_face_hole_depths
+from machining_logic import is_drawer_slide_hole, merge_drawer_panel_holes, apply_face_hole_depths, apply_tranche_hole_depths
 
 try:
     from PIL import Image
@@ -1089,6 +1089,8 @@ def draw_machining_view_pro_final(panel_name, L, W, T, unit_str, project_info,
     global _annotation_tracker
     _annotation_tracker = set()
     face_holes_list = apply_face_hole_depths(panel_name, face_holes_list)
+    tranche_longue_holes_list = apply_tranche_hole_depths(tranche_longue_holes_list)
+    tranche_cote_holes_list = apply_tranche_hole_depths(tranche_cote_holes_list)
     
     fig = go.Figure()
     

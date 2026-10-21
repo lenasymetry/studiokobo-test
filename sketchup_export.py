@@ -565,14 +565,15 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
             if _g is None or _g["length"] <= 0 or _g["width"] <= 0 or _g["thickness"] <= 0:
                 continue
             _jt, _jw, _jl = _g["thickness"], _g["width"], _g["length"]
+            _jy = oy - float(_g.get("front_offset", 0.0))   # meuble à porte : joue avancée
             if _jk == "gauche":
-                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox - _jt, oy, oz + _g["z_offset"], _jt, _jw, _jl)
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox - _jt, _jy, oz + _g["z_offset"], _jt, _jw, _jl)
             elif _jk == "droite":
-                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + L, oy, oz + _g["z_offset"], _jt, _jw, _jl)
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + L, _jy, oz + _g["z_offset"], _jt, _jw, _jl)
             elif _jk == "dessus":
-                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], oy, oz + H, _jl, _jw, _jt)
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], _jy, oz + H, _jl, _jw, _jt)
             else:
-                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], oy, oz - _jt, _jl, _jw, _jt)
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], _jy, oz - _jt, _jl, _jw, _jt)
 
         # ── Façades de tiroir ───────────────────────────────────────────
         for j, drp in enumerate(cabinet.get("drawers", [])):

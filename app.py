@@ -4040,6 +4040,8 @@ with col2:
                     joue_t = joue_geo['thickness'] * unit_factor
                     joue_x_offset = joue_geo['x_offset'] * unit_factor
                     joue_z_offset = joue_geo['z_offset'] * unit_factor
+                    # Meuble à porte : la joue avance pour couvrir la porte.
+                    joue_y0 = o[1] - float(joue_geo.get('front_offset', 0.0)) * unit_factor
                     is_preview = bool(joue.get('_preview'))
                     joue_color = "#666666" if is_preview else JOUES_COLOR
                     joue_opacity = 0.35 if is_preview else 0.75
@@ -4047,7 +4049,7 @@ with col2:
                     if joue_side == 'left':
                         fig3d.add_trace(cuboid_mesh_for(
                             joue_t, joue_w, joue_l,
-                            (o[0] - joue_t, o[1], o[2] + joue_z_offset),
+                            (o[0] - joue_t, joue_y0, o[2] + joue_z_offset),
                             color=joue_color,
                             opacity=joue_opacity,
                             name=f"Joue gauche {i}",
@@ -4056,7 +4058,7 @@ with col2:
                     elif joue_side == 'right':
                         fig3d.add_trace(cuboid_mesh_for(
                             joue_t, joue_w, joue_l,
-                            (o[0] + L, o[1], o[2] + joue_z_offset),
+                            (o[0] + L, joue_y0, o[2] + joue_z_offset),
                             color=joue_color,
                             opacity=joue_opacity,
                             name=f"Joue droite {i}",
@@ -4065,7 +4067,7 @@ with col2:
                     elif joue_side == 'top':
                         fig3d.add_trace(cuboid_mesh_for(
                             joue_l, joue_w, joue_t,
-                            (o[0] + joue_x_offset, o[1], o[2] + H),
+                            (o[0] + joue_x_offset, joue_y0, o[2] + H),
                             color=joue_color,
                             opacity=joue_opacity,
                             name=f"Joue dessus {i}",
@@ -4074,7 +4076,7 @@ with col2:
                     elif joue_side == 'bottom':
                         fig3d.add_trace(cuboid_mesh_for(
                             joue_l, joue_w, joue_t,
-                            (o[0] + joue_x_offset, o[1], o[2] - joue_t),
+                            (o[0] + joue_x_offset, joue_y0, o[2] - joue_t),
                             color=joue_color,
                             opacity=joue_opacity,
                             name=f"Joue dessous {i}",

@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1183,6 +1183,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
     def _add_plan(title, Lp, Wp, Tp, ch, fh, t_long_h, t_cote_h, cut, has_rebate, proj_for_plan):
         nonlocal dxf_plan_index
         fh = apply_face_hole_depths(title, fh)
+        t_long_h = apply_tranche_hole_depths(t_long_h)
+        t_cote_h = apply_tranche_hole_depths(t_cote_h)
         if output_format == 'plans':
             plans_out.append({
                 'title': title,
