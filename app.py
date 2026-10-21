@@ -52,6 +52,7 @@ from machining_logic import (
     get_cabinet_door_height_raw,
     cabinet_door_is_hidden,
     get_door_vertical_geometry,
+    get_hinge_y_positions,
     get_cache_pied_drop,
     cabinet_rests_on_floor,
     get_plinthe_for_cabinet,
@@ -1859,9 +1860,19 @@ with col1:
                         if selected_hinge_mode == 'custom':
                             # Mode personnalisé : permettre à l'utilisateur de définir le nombre et les positions
                             custom_positions = d_p.get('custom_hinge_positions', [])
+                            if not custom_positions:
+                                # Point de départ = calcul automatique de l'usinage
+                                # (2 charnières sous 450 mm de vantail, 3 au-delà).
+                                _leaf_h, _ = get_door_vertical_geometry(
+                                    get_cabinet_door_height_raw(selected_cab), d_p,
+                                    bool(st.session_state.get('has_feet', False)),
+                                    st.session_state.get('foot_height', 0.0),
+                                )
+                                custom_positions = get_hinge_y_positions(_leaf_h)
+                                d_p['custom_hinge_positions'] = list(custom_positions)
                             num_hinges = st.number_input(
                                 "Nombre de charnières",
-                                value=len(custom_positions) if custom_positions else 3,
+                                value=len(custom_positions),
                                 min_value=1,
                                 max_value=10,
                                 step=1,
