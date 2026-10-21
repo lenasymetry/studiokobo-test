@@ -26,6 +26,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import to_rgba
 from PIL import Image, ImageDraw
 from machining_logic import (calculate_all_zones_2d, get_cabinet_door_height_raw,
+                             get_hinge_y_positions,
                              cabinet_door_is_hidden, get_door_vertical_geometry,
                              get_cache_pied_drop, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width,
@@ -1032,8 +1033,8 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
 
 def _hinge_count_per_leaf(cab: Dict) -> int:
     """Nombre de charnières PAR VANTAIL, d'après la hauteur habillée par la porte
-    (les deux caissons quand la porte leur est commune) :
-    2 en dessous de 1500 mm, 3 de 1500 à 2000 mm, 4 au-delà.
+    (les deux caissons quand la porte leur est commune) : même règle que
+    l'usinage (`get_hinge_y_positions` : 3 à partir de 450 mm, 2 en dessous).
 
     Un réglage manuel des charnières dans l'application (mode « Personnalisé »)
     l'emporte : c'est un choix explicite de l'utilisateur, pas une valeur par
@@ -1043,12 +1044,12 @@ def _hinge_count_per_leaf(cab: Dict) -> int:
         custom = dp.get("custom_hinge_positions") or []
         if custom:
             return len(custom)
-    H = get_cabinet_door_height_raw(cab)
-    if H > 2000.0:
-        return 4
-    if H >= 1500.0:
-        return 3
-    return 2
+    # Hauteur du vantail (jeux, cache-pieds), comme la feuille d'usinage.
+    leaf_h, _ = get_door_vertical_geometry(
+        get_cabinet_door_height_raw(cab), dp,
+        bool(cab.get("has_feet", False)), cab.get("foot_height", 0.0),
+    )
+    return len(get_hinge_y_positions(leaf_h))
 
 
 def _description_lines(cab: Dict, label: str) -> List[str]:
