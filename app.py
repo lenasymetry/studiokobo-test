@@ -756,12 +756,13 @@ def calculate_all_project_parts():
         body_dims = carcass_piece_dims(cabinet)
         L_traverse = body_dims['L_traverse']
         W_inner = body_dims['W_inner']
+        W_traverse = body_dims['W_traverse']
         dim_fond_vertical = body_dims['fond_H']
         dim_fond_horizontal = body_dims['fond_W']
         
         panel_dims = {
-            "Traverse Bas": (L_traverse, W_inner, t_tb),
-            "Traverse Haut": (L_traverse, W_inner, t_tb),
+            "Traverse Bas": (L_traverse, W_traverse, t_tb),
+            "Traverse Haut": (L_traverse, W_traverse, t_tb),
             "Montant Gauche": (h_side, dims['W_raw'], t_lr),
             "Montant Droit": (h_side, dims['W_raw'], t_lr),
             "Fond": (dim_fond_vertical, dim_fond_horizontal, t_fb)

@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1344,7 +1344,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             # Trame vis/tourillons sur la profondeur des pièces intérieures,
             # mesurée depuis l'AVANT. Montant gauche : avant en x = 0 ;
             # montant droit : avant en x = W_mont (repère de sa feuille).
-            ys_vis, ys_dowel = calculate_hole_positions(W_inner)
+            # Traverses pleine profondeur : trame montant/traverse sur W_raw.
+            W_trav = body['W_traverse']
+            ys_vis, ys_dowel = calculate_hole_positions(W_trav)
             def _x_md(x):
                 return W_mont - x
             holes_mg, holes_md = [], []
@@ -1368,7 +1370,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             # soient parfaitement alignés avec les trous d'assemblage
             # montant/traverse, on réutilise EXACTEMENT la même trame X
             # (ys_vis / ys_dowel) calculée pour W_raw.
-            ys_vis_sf, ys_dowel_sf = ys_vis, ys_dowel
+            # Étagères fixes (profondeur - 19) : leur propre trame, depuis l'avant.
+            ys_vis_sf, ys_dowel_sf = calculate_hole_positions(W_inner)
             fixed_shelf_tr_draw = {}
             
             # Calculer les zones pour les éléments (MÊME LOGIQUE QUE 2.PY)
@@ -1665,10 +1668,13 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             holes_fond = calculate_back_panel_holes(W_back, H_back, cab)
             fond_t_long, fond_t_cote = calculate_back_panel_edge_holes(W_back, H_back)
             # Tourillons du fond -> montants : mêmes hauteurs, dans l'axe du fond.
+            fond_trav_holes = []
             if cab.get('base_elements', {}).get('has_back_panel', True):
                 _fond_mg, _fond_md = back_panel_upright_holes(cab, W_mont)
                 holes_mg.extend(_fond_mg)
                 holes_md.extend(_fond_md)
+                # Vis de fixation du fond à travers les traverses haut et bas.
+                fond_trav_holes = back_panel_traverse_holes(cab)
 
             proj = {"project_name": st.session_state.project_name, "corps_meuble": f"Caisson {cab_idx}", "quantity": 1, "date": datetime.date.today().strftime("%d/%m/%Y")}
             # plan_quantities est déjà initialisé avant la boucle des étagères (ligne 171)
@@ -1689,9 +1695,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             })
             
             if base_el.get('has_bottom_traverse', True):
-                plans.append(("Traverse Bas (Tb)", L_trav, W_inner, t_tb, c_trav, traverse_face_holes_left, tholes_longue, tholes_cote, None))
+                plans.append(("Traverse Bas (Tb)", L_trav, W_trav, t_tb, c_trav, traverse_face_holes_left + fond_trav_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_top_traverse', True):
-                plans.append(("Traverse Haut (Th)", L_trav, W_inner, t_tb, c_trav, traverse_face_holes_right, tholes_longue, tholes_cote, None))
+                plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, c_trav, traverse_face_holes_right + fond_trav_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_left_upright', True):
                 c_mg = debit_piece_chants(cab, "Montant Gauche", dict(c_mont, **{"Chant Droit": False}))
                 plans.append(("Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, [], tranche_holes_mg, None))
@@ -2223,10 +2229,10 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         h_side = H_raw
         L_trav = L_raw - 2 * t_lr
         W_mont = W_raw
-        W_back = L_raw - 2.0
-        H_back = H_raw - 2.0
+        W_back = carcass_piece_dims(cab)['fond_W']
+        H_back = carcass_piece_dims(cab)['fond_H']
         
-        ys_vis, ys_dowel = calculate_hole_positions(carcass_piece_dims(cab)["W_inner"])  # même trame que les feuilles d'usinage
+        ys_vis, ys_dowel = calculate_hole_positions(carcass_piece_dims(cab)["W_traverse"])  # même trame que les feuilles d'usinage
         holes_mg, holes_md = [], []
         tranche_holes_mg, tranche_holes_md = [], []
         
@@ -2242,7 +2248,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
             holes_md.append({'type':'tourillon','x':x,'y':t_tb/2,'diam_str':"⌀8/10"})
             holes_md.append({'type':'tourillon','x':x,'y':h_side-t_tb/2,'diam_str':"⌀8/10"})
         
-        ys_vis_sf, ys_dowel_sf = ys_vis, ys_dowel
+        ys_vis_sf, ys_dowel_sf = calculate_hole_positions(carcass_piece_dims(cab)["W_inner"])
         all_zones_2d = calculate_all_zones_2d(cab)
         
         divider_element_holes_left = {}
@@ -2364,6 +2370,12 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         
         holes_fond = calculate_back_panel_holes(W_back, H_back, cab)
         fond_t_long, fond_t_cote = calculate_back_panel_edge_holes(W_back, H_back)
+        fond_trav_holes = []
+        if cab.get('base_elements', {}).get('has_back_panel', True):
+            _fond_mg, _fond_md = back_panel_upright_holes(cab, W_mont)
+            holes_mg.extend(_fond_mg)
+            holes_md.extend(_fond_md)
+            fond_trav_holes = back_panel_traverse_holes(cab)
         
         proj = {
             "project_name": st.session_state.project_name,
@@ -2538,7 +2550,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         fig_th = draw_machining_view_pro_final(
             f"Traverse Haute (C{cab_idx})", L_trav, W_mont, t_tb, 
             st.session_state.unit_select, proj, c_trav, 
-            traverse_face_holes_left, tholes_longue, tholes_cote, None, False
+            traverse_face_holes_left + fond_trav_holes, tholes_longue, tholes_cote, None, False
         )
         all_figures.append((f"Traverse Haute (C{cab_idx})", fig_th))
         
@@ -2546,7 +2558,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         fig_tb = draw_machining_view_pro_final(
             f"Traverse Basse (C{cab_idx})", L_trav, W_mont, t_tb,
             st.session_state.unit_select, proj, c_trav,
-            traverse_face_holes_right, tholes_longue, tholes_cote, None, False
+            traverse_face_holes_right + fond_trav_holes, tholes_longue, tholes_cote, None, False
         )
         all_figures.append((f"Traverse Basse (C{cab_idx})", fig_tb))
         

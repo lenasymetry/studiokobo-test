@@ -553,10 +553,11 @@ def back_panel_side_dowel_positions(H_back):
 def calculate_back_panel_edge_holes(W_back, H_back):
     """Perçages des tranches du fond encastré.
 
-    Le fond est logé derrière les traverses (profondeur - 19) et entre les
-    montants : seules ses tranches gauche/droite reçoivent des tourillons,
-    qui entrent dans les montants (voir back_panel_upright_holes). Ses
-    tranches haut/bas ne sont pas percées.
+    Le fond se loge entre les montants et entre les traverses (pleine
+    profondeur). Tranches gauche/droite : tourillons, qui entrent dans les
+    montants (voir back_panel_upright_holes). Tranches haut/bas : pas de
+    perçage, le fond est vissé à travers le panneau des traverses (voir
+    back_panel_traverse_holes).
     Retourne (trous des tranches haut/bas, trous des tranches gauche/droite).
     """
     side_holes = [{'type': 'tourillon', 'x': 0.0, 'y': y, 'diam_str': "⌀8/22"}
@@ -564,23 +565,48 @@ def calculate_back_panel_edge_holes(W_back, H_back):
     return [], side_holes
 
 
+def _back_panel_axis_from_front(cabinet):
+    """Axe du fond encastré dans l'épaisseur, mesuré depuis l'avant du caisson."""
+    dims = cabinet.get('dims', {}) or {}
+    W_raw = float(dims.get('W_raw', 0.0))
+    t_fb = float(dims.get('t_fb_raw', 18.0))
+    return W_raw - FOND_REBATE_MM + t_fb / 2.0
+
+
 def back_panel_upright_holes(cabinet, W_mont):
-    """Tourillons à percer sur la face intérieure des montants gauche/droit,
-    en face de ceux des tranches du fond. Retourne (trous Mg, trous Md) dans le
+    """Perçages des montants gauche/droit pour le fond encastré : tourillons en
+    face de ceux des tranches du fond, et une vis entre chaque paire de
+    tourillons, dans l'axe du fond. Retourne (trous Mg, trous Md) dans le
     repère des feuilles de montant (Mg : avant en x = 0, Md : avant en x = W)."""
     dims = cabinet.get('dims', {}) or {}
     H_raw = float(dims.get('H_raw', 0.0))
-    W_raw = float(dims.get('W_raw', 0.0))
-    t_fb = float(dims.get('t_fb_raw', 18.0))
-    body = carcass_piece_dims(cabinet)
-    H_back = body['fond_H']
-    off_y = (H_raw - H_back) / 2.0                        # fond centré en hauteur
-    x_front = W_raw - FOND_REBATE_MM + t_fb / 2.0          # axe du fond, depuis l'avant
+    H_back = carcass_piece_dims(cabinet)['fond_H']
+    off_y = (H_raw - H_back) / 2.0                         # fond centré en hauteur
+    x_front = _back_panel_axis_from_front(cabinet)
+    dowels = back_panel_side_dowel_positions(H_back)
+    screws = [(a + b) / 2.0 for a, b in zip(dowels, dowels[1:])]
     mg, md = [], []
-    for y in back_panel_side_dowel_positions(H_back):
+    for y in dowels:
         mg.append({'type': 'tourillon', 'x': x_front, 'y': off_y + y, 'diam_str': "⌀8/22"})
         md.append({'type': 'tourillon', 'x': float(W_mont) - x_front, 'y': off_y + y, 'diam_str': "⌀8/22"})
+    for y in screws:
+        mg.append({'type': 'vis', 'x': x_front, 'y': off_y + y, 'diam_str': "⌀3"})
+        md.append({'type': 'vis', 'x': float(W_mont) - x_front, 'y': off_y + y, 'diam_str': "⌀3"})
     return mg, md
+
+
+def back_panel_traverse_holes(cabinet):
+    """Trous de vis dans le panneau des traverses haut et bas pour fixer le fond
+    encastré par ses tranches haut/bas : dans l'axe du fond, 50 mm des angles du
+    fond puis ~300 mm. Repère de la feuille de traverse (x depuis le montant
+    gauche, y depuis l'avant)."""
+    dims = cabinet.get('dims', {}) or {}
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    body = carcass_piece_dims(cabinet)
+    off_x = (body['L_eff'] - body['fond_W']) / 2.0 - t_lr    # fond centré, repère traverse
+    y = _back_panel_axis_from_front(cabinet)
+    return [{'type': 'vis', 'x': off_x + x, 'y': y, 'diam_str': "⌀3"}
+            for x in back_panel_side_dowel_positions(body['fond_W'])]
 
 
 def detect_collisions(cabinet):
@@ -870,8 +896,10 @@ def carcass_piece_dims(cabinet):
     et les feuilles d'usinage.
 
     - L_traverse : longueur des traverses / étagères (largeur utile, fileur déduit) ;
-    - W_inner : largeur des traverses, étagères et montants secondaires
-      (profondeur - 19, le fond étant encastré) ;
+    - W_inner : largeur des étagères fixes et montants secondaires
+      (profondeur - 19 : ils s'arrêtent devant le fond encastré) ;
+    - W_traverse : largeur des traverses haut/bas (pleine profondeur, le fond
+      se loge entre elles et entre les montants) ;
     - fond_W x fond_H : fond encastré (largeur utile - 38) x (hauteur - 38).
     """
     dims = cabinet.get('dims', {}) or {}
@@ -884,6 +912,8 @@ def carcass_piece_dims(cabinet):
         'L_eff': L_eff,
         'L_traverse': max(0.0, L_eff - 2.0 * t_lr),
         'W_inner': max(0.0, W_raw - FOND_REBATE_MM),
+        # Traverses haut/bas : pleine profondeur, le fond se loge entre elles.
+        'W_traverse': W_raw,
         'fond_W': max(0.0, L_eff - FOND_INSET_MM),
         'fond_H': max(0.0, H_raw - FOND_INSET_MM),
     }
