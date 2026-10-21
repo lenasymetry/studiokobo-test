@@ -2706,10 +2706,9 @@ with col1:
                                 st.number_input("Épaisseur (mm)", value=s['thickness'], key=f"shelf_e_{idx}_{i}", on_change=lambda x=i: update_shelf_prop(x, 'thickness'), format="%.0f", step=1.0)
                                 st.text_input("Matière", value=s.get('material', 'Matière Étagère'), key=f"shelf_m_{idx}_{i}", on_change=lambda x=i: update_shelf_material(x, 'material'))
                                 if s_type == 'mobile':
-                                    st.selectbox("Motif Trous", options=['full_height', '5_holes_centered', 'custom_n_m'], index=['full_height', '5_holes_centered', 'custom_n_m'].index(s.get('mobile_machining_type', 'full_height')), format_func=lambda x: {'full_height':'Toute hauteur', '5_holes_centered':'5 Trous Centrés', 'custom_n_m':'Personnalisé'}.get(x, x), key=f"shelf_m_type_{idx}_{i}", on_change=lambda x=i: update_shelf_prop(x, 'mobile_machining_type'))
-                                    if s.get('mobile_machining_type') == 'custom_n_m':
-                                        st.number_input("Trous au-dessus (N)", value=s.get('custom_holes_above', 0), key=f"shelf_c_above_{idx}_{i}", on_change=lambda x=i: update_shelf_prop(x, 'custom_holes_above'), step=1)
-                                        st.number_input("Trous en-dessous (M)", value=s.get('custom_holes_below', 0), key=f"shelf_c_below_{idx}_{i}", on_change=lambda x=i: update_shelf_prop(x, 'custom_holes_below'), step=1)
+                                    st.caption("Perçage crémaillère : 2 rangées ⌀5 prof. 12 à 50 mm des bords, "
+                                               "pas de 32 mm sur toute la hauteur de la zone (communes à toutes "
+                                               "les étagères mobiles de la zone).")
                                 st.button("Supprimer cette étagère 🗑️", key=f"del_shelf_{idx}_{i}", on_click=lambda x=i: delete_shelf_callback(x))
                     
                     st.markdown("---")

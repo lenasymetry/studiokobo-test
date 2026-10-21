@@ -408,6 +408,8 @@ def calculate_hole_positions(W_raw):
 
 def is_drawer_slide_hole(hole):
     """Détecte les trous de coulisses de tiroir à partir du diamètre."""
+    if hole.get('type') == 'etagere_taquet':
+        return False   # crémaillère ⌀5/12 : même diamètre, mais pas un tiroir
     diam_str = str(hole.get('diam_str', ''))
     return (
         ("5/12" in diam_str)
@@ -459,18 +461,46 @@ def get_hinge_y_positions(door_height, custom_positions=None):
         positions.append(door_height / 2.0)
     return positions
 
-def get_mobile_shelf_holes(h_side, t_tb, shelf, W_mont):
-    """Calcule les trous pour les taquets d'une étagère mobile."""
-    holes = []
-    y_pos = t_tb + shelf.get('height', 0.0)
-    # Trous de taquets : mêmes coordonnées X que les trous
-    # d'assemblage montant / traverse (vis + tourillons), pour
-    # respecter une trame unique sur la profondeur du montant.
-    ys_vis, ys_dowel = calculate_hole_positions(W_mont)
-    x_positions = sorted(set(ys_vis + ys_dowel))
-    for x in x_positions:
-        holes.append({'type': 'etagere_taquet', 'x': x, 'y': y_pos, 'diam_str': "⌀5"})
-    return holes
+# Étagères mobiles en crémaillère : 2 rangées verticales de trous ⌀5 prof. 12,
+# à 50 mm des bords avant et arrière du panneau, pas de 32 mm, sur toute la
+# hauteur de la zone. Un seul jeu de trous par face, quel que soit le nombre
+# d'étagères mobiles.
+MOBILE_RACK_EDGE_MM = 50.0
+MOBILE_RACK_PITCH_MM = 32.0
+MOBILE_RACK_END_MARGIN_MM = 32.0   # marge mini sous/sur la série de trous
+MOBILE_RACK_DIAM = "⌀5/12"
+
+
+def mobile_shelf_rack_y_range(cabinet, x_min, x_max, y_shelf):
+    """Hauteur (y_min, y_max), repère du montant, de la zone qui reçoit une
+    étagère mobile : bornée par les éléments FIXES (traverses, étagères fixes),
+    jamais par les autres étagères mobiles."""
+    dims = cabinet.get('dims', {}) or {}
+    H = float(dims.get('H_raw', 0.0) or 0.0)
+    t_tb = float(dims.get('t_tb_raw', 19.0) or 0.0)
+    fixed_only = dict(cabinet)
+    fixed_only['shelves'] = [s for s in (cabinet.get('shelves') or [])
+                             if s.get('shelf_type', 'mobile') != 'mobile']
+    x_c = (float(x_min) + float(x_max)) / 2.0
+    for z in calculate_all_zones_2d(fixed_only):
+        if z['x_min'] - 0.5 <= x_c <= z['x_max'] + 0.5 and z['y_min'] - 0.5 <= y_shelf <= z['y_max'] + 0.5:
+            return float(z['y_min']), float(z['y_max'])
+    return t_tb, H - t_tb
+
+
+def mobile_shelf_rack_holes(panel_w, y_min, y_max):
+    """Trous de crémaillère d'une face : 2 rangées (x = 50 et panel_w - 50),
+    pas de 32 mm, série centrée dans [y_min, y_max] avec au moins 32 mm de
+    marge à chaque bout."""
+    span = float(y_max) - float(y_min) - 2.0 * MOBILE_RACK_END_MARGIN_MM
+    if span < 0.0 or float(panel_w) <= 2.0 * MOBILE_RACK_EDGE_MM:
+        return []
+    n = int(span // MOBILE_RACK_PITCH_MM) + 1
+    y0 = float(y_min) + (float(y_max) - float(y_min) - (n - 1) * MOBILE_RACK_PITCH_MM) / 2.0
+    xs = (MOBILE_RACK_EDGE_MM, float(panel_w) - MOBILE_RACK_EDGE_MM)
+    return [{'type': 'etagere_taquet', 'x': x, 'y': y0 + i * MOBILE_RACK_PITCH_MM, 'diam_str': MOBILE_RACK_DIAM}
+            for x in xs for i in range(n)]
+
 
 def calculate_back_panel_holes(W_back, H_back, cabinet):
     """

@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1047,6 +1047,18 @@ def _hinge_panel_for_edge(cab, hinge_x, door_side, t_lr, L_raw):
     return best[1] if best else None
 
 
+def _add_rack_holes(target, rack_holes):
+    """Ajoute des trous de crémaillère sans doublon : plusieurs étagères
+    mobiles d'une même zone partagent la même série de trous."""
+    seen = {(round(float(h['x']), 1), round(float(h['y']), 1))
+            for h in target if h.get('type') == 'etagere_taquet'}
+    for h in rack_holes:
+        key = (round(float(h['x']), 1), round(float(h['y']), 1))
+        if key not in seen:
+            seen.add(key)
+            target.append(dict(h))
+
+
 def _divider_vertical_span(div, interior_h):
     """(bas, haut) du montant secondaire en mm depuis le dessus de la traverse basse."""
     if div.get('_force_full_height') or div.get('bottom_y') is None or div.get('top_y') is None:
@@ -1481,10 +1493,11 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                             tr.append({'type':'tourillon','x':s_th/2,'y':y_pos,'diam_str':"⌀8/22"})
                         fixed_shelf_tr_draw[s_idx] = tr
                     else:
-                        # Étagère mobile : les taquets sont déjà calculés, on les filtre par zone
+                        # Étagère mobile : crémaillère (2 rangées verticales à
+                        # 50 mm des bords) sur la hauteur de sa zone fixe, posée
+                        # une seule fois par face quel que soit le nombre d'étagères.
                         L_shelf = float(L_trav)
-                        mobile_holes = get_mobile_shelf_holes(h_side, t_tb, s, W_mont)
-                        
+
                         zone_x_min = None
                         zone_x_max = None
                         
@@ -1496,17 +1509,24 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                             zone_x_min = zone['x_min']
                             zone_x_max = zone['x_max']
                         
+                        _rx_min = zone_x_min if zone_x_min is not None else t_lr
+                        _rx_max = zone_x_max if zone_x_max is not None else L_raw - t_lr
+                        _ry_min, _ry_max = mobile_shelf_rack_y_range(
+                            cab, _rx_min, _rx_max, t_tb + float(s.get('height', 0.0)) + s_th / 2.0)
+                        rack_main = mobile_shelf_rack_holes(W_mont, _ry_min, _ry_max)
+                        rack_div = mobile_shelf_rack_holes(W_inner, _ry_min, _ry_max)
+
                         if zone_x_min is not None and zone_x_max is not None:
                             # Montant gauche si la zone commence au montant gauche
                             if abs(zone_x_min - t_lr) < 1.0:
-                                holes_mg.extend(mobile_holes)
+                                _add_rack_holes(holes_mg, rack_main)
                             # Montant droit si la zone se termine au montant droit
                             if abs(zone_x_max - (L_raw - t_lr)) < 1.0:
-                                holes_md.extend(mobile_holes)
+                                _add_rack_holes(holes_md, rack_main)
                         else:
                             # Étagère mobile sur tout le caisson : trous sur les deux montants principaux
-                            holes_mg.extend(mobile_holes)
-                            holes_md.extend(mobile_holes)
+                            _add_rack_holes(holes_mg, rack_main)
+                            _add_rack_holes(holes_md, rack_main)
                         
                         # Montants secondaires qui touchent cette étagère
                         if zone_x_min is not None and zone_x_max is not None:
@@ -1520,9 +1540,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                                 touches_right_face = abs(zone_x_min - div_right_edge) < 1.0
                                 
                                 if touches_left_face:
-                                    divider_element_holes_left[div_idx].extend(mobile_holes)
+                                    _add_rack_holes(divider_element_holes_left[div_idx], rack_div)
                                 if touches_right_face:
-                                    divider_element_holes_right[div_idx].extend(mobile_holes)
+                                    _add_rack_holes(divider_element_holes_right[div_idx], rack_div)
                         # Pour les étagères mobiles, pas de trous dans la tranche
                         fixed_shelf_tr_draw[s_idx] = []
                         # Pour les étagères mobiles, L_shelf est déjà défini à la ligne 240
@@ -2293,7 +2313,8 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         shelves_list = cab.get('shelves', []) or base_el.get('shelves', []) or []
         if shelves_list:
             for s in shelves_list:
-                if s.get('enabled', True):
+                # Étagère mobile : crémaillère ⌀5 seulement, ni vis ni tourillon.
+                if s.get('enabled', True) and s.get('shelf_type', 'mobile') == 'fixe':
                     yc_val = s.get('y_center', 0)
                     zone_id = s.get('zone_id', None)
                     zone_x_min = None
