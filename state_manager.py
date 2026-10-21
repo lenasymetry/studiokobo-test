@@ -128,8 +128,6 @@ def initialize_session_state():
     # None = jamais généré, chaîne = scène déjà générée
     st.session_state.setdefault('exports_scene_json', None)
     # Résultats stockés des derniers exports générés
-    st.session_state.setdefault('exports_html_data', None)
-    st.session_state.setdefault('exports_html_ok', False)
     st.session_state.setdefault('exports_dwg_data', None)
     st.session_state.setdefault('exports_dwg_ok', False)
     st.session_state.setdefault('exports_dwg_filename', None)

@@ -15,12 +15,6 @@ import sys
 import importlib 
 import zipfile
 
-try:
-    import ezdxf
-    EZDXF_PREVIEW_AVAILABLE = True
-except Exception:
-    EZDXF_PREVIEW_AVAILABLE = False
-
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
@@ -161,8 +155,6 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
             if str(part.get("Matière", "")).strip() in selected_set
         ]
 
-    html_data = None
-    html_ok = False
     dwg_data = None
     dwg_ok = False
     dwg_filename = None
@@ -178,18 +170,6 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
     rb_ok = False
     views3d_error = None
     xls_error = None
-
-    try:
-        from export_manager import generate_stacked_html_plans
-
-        html_data, html_ok = generate_stacked_html_plans(
-            scene,
-            indices,
-            output_format="html",
-        )
-    except Exception as exc:
-        html_data = str(exc).encode("utf-8", errors="ignore")
-        html_ok = False
 
     # Export DXF : 1 présentation (layout A3) par pièce — mêmes données de
     # pièces et de perçages que les feuilles d'usinage du site.
@@ -338,8 +318,6 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         rb_data = None
         rb_ok = False
 
-    st.session_state['exports_html_data'] = html_data
-    st.session_state['exports_html_ok'] = bool(html_ok)
     st.session_state['exports_dwg_data'] = dwg_data
     st.session_state['exports_dwg_ok'] = bool(dwg_ok)
     st.session_state['exports_dwg_filename'] = dwg_filename
@@ -383,213 +361,6 @@ def _build_deliverables_archive(project_name, xls_data, dxf_data, dxf_filename=N
         zf.writestr(dxf_name, dxf_data)
 
     return buffer.getvalue(), zip_name
-
-
-def _dxf_text_value(entity):
-    try:
-        if entity.dxftype() == "MTEXT":
-            if hasattr(entity, "plain_text"):
-                return str(entity.plain_text())
-            return str(getattr(entity, "text", ""))
-        return str(entity.dxf.text)
-    except Exception:
-        return ""
-
-
-def _dxf_text_insert(entity):
-    try:
-        if entity.dxftype() == "MTEXT":
-            ins = entity.dxf.insert
-        else:
-            ins = entity.dxf.insert
-        return float(ins.x), float(ins.y)
-    except Exception:
-        return None
-
-
-def _build_plotly_preview_from_dxf_window(msp, title, x_min, x_max, y_min, y_max, panel_x0, panel_x1, panel_y0, panel_y1):
-    fig = go.Figure()
-
-    # Main panel outline from DXF plan geometry.
-    fig.add_shape(
-        type="rect",
-        x0=panel_x0,
-        y0=panel_y0,
-        x1=panel_x1,
-        y1=panel_y1,
-        line=dict(color="black", width=1.5),
-        fillcolor="rgba(255,255,255,0)",
-    )
-
-    for entity in msp:
-        dtype = entity.dxftype()
-
-        if dtype == "LINE":
-            try:
-                sx, sy, _ = entity.dxf.start
-                ex, ey, _ = entity.dxf.end
-                if max(sx, ex) < x_min or min(sx, ex) > x_max or max(sy, ey) < y_min or min(sy, ey) > y_max:
-                    continue
-                fig.add_trace(
-                    go.Scatter(
-                        x=[sx, ex],
-                        y=[sy, ey],
-                        mode="lines",
-                        line=dict(color="black", width=1),
-                        hoverinfo="skip",
-                        showlegend=False,
-                    )
-                )
-            except Exception:
-                continue
-
-        elif dtype == "LWPOLYLINE":
-            try:
-                pts = [(float(p[0]), float(p[1])) for p in entity.get_points("xy")]
-                if not pts:
-                    continue
-                xs = [p[0] for p in pts]
-                ys = [p[1] for p in pts]
-                if max(xs) < x_min or min(xs) > x_max or max(ys) < y_min or min(ys) > y_max:
-                    continue
-                if pts[0] != pts[-1]:
-                    pts.append(pts[0])
-                fig.add_trace(
-                    go.Scatter(
-                        x=[p[0] for p in pts],
-                        y=[p[1] for p in pts],
-                        mode="lines",
-                        line=dict(color="black", width=1),
-                        hoverinfo="skip",
-                        showlegend=False,
-                    )
-                )
-            except Exception:
-                continue
-
-        elif dtype == "CIRCLE":
-            try:
-                cx, cy, _ = entity.dxf.center
-                r = float(entity.dxf.radius)
-                if cx < x_min or cx > x_max or cy < y_min or cy > y_max:
-                    continue
-                fig.add_shape(
-                    type="circle",
-                    x0=cx - r,
-                    y0=cy - r,
-                    x1=cx + r,
-                    y1=cy + r,
-                    line=dict(color="black", width=1),
-                    fillcolor="rgba(0,0,0,0)",
-                )
-            except Exception:
-                continue
-
-        elif dtype in ("TEXT", "MTEXT"):
-            val = _dxf_text_value(entity).strip()
-            insert = _dxf_text_insert(entity)
-            if not val or insert is None:
-                continue
-            tx, ty = insert
-            if tx < x_min or tx > x_max or ty < y_min or ty > y_max:
-                continue
-            fig.add_annotation(
-                x=tx,
-                y=ty,
-                text=val,
-                showarrow=False,
-                font=dict(size=9, color="black"),
-                xanchor="left",
-                yanchor="bottom",
-            )
-
-    fig.update_layout(
-        title=title,
-        showlegend=False,
-        margin=dict(l=10, r=10, t=40, b=10),
-        xaxis=dict(range=[x_min, x_max], scaleanchor="y", scaleratio=1, visible=False),
-        yaxis=dict(range=[y_min, y_max], visible=False),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-    )
-    return fig
-
-
-def _build_double_cachepied_preview_from_dxf(selected_cab, cab_number):
-    if not EZDXF_PREVIEW_AVAILABLE:
-        return []
-
-    from export_manager import generate_stacked_html_plans
-
-    payload, ok = generate_stacked_html_plans([selected_cab], [cab_number], output_format="dxf")
-    if not ok:
-        return []
-
-    try:
-        dxf_text = payload.decode("utf-8", errors="ignore")
-        doc = ezdxf.read(io.StringIO(dxf_text))
-    except Exception:
-        return []
-
-    dp = selected_cab.get("door_props", {})
-    dims = selected_cab.get("dims", {})
-    L_raw = float(dims.get("L_raw", 0.0) or 0.0)
-    H_raw = get_cabinet_door_height_raw(selected_cab)
-    door_gap = float(dp.get("door_gap", 2.0) or 2.0)
-    dH, _ = get_door_vertical_geometry(
-        H_raw, dp,
-        bool(st.session_state.get("has_feet", False)),
-        st.session_state.get("foot_height", 0.0),
-    )
-    dW = (L_raw - (2.0 * door_gap)) / 2.0
-
-    target_titles = [
-        f"PORTE DROITE (C{cab_number})",
-        f"PORTE GAUCHE (C{cab_number})",
-    ]
-
-    title_to_x0 = {}
-    msp = doc.modelspace()
-    for entity in msp.query("TEXT MTEXT"):
-        text_val = _dxf_text_value(entity)
-        if not text_val.startswith("FEUILLE D'USINAGE : "):
-            continue
-        sheet_title = text_val.replace("FEUILLE D'USINAGE : ", "", 1).strip()
-        if sheet_title not in target_titles:
-            continue
-        ins = _dxf_text_insert(entity)
-        if ins is None:
-            continue
-        title_to_x0[sheet_title] = ins[0]
-
-    figures = []
-    panel_y0 = 400.0
-    panel_y1 = panel_y0 + dH
-    y_min = -120.0
-    y_max = panel_y1 + 380.0
-
-    for title in target_titles:
-        x0 = title_to_x0.get(title)
-        if x0 is None:
-            continue
-        x1 = x0 + dW
-        x_min = x0 - 260.0
-        x_max = x1 + 260.0
-        fig = _build_plotly_preview_from_dxf_window(
-            msp,
-            title,
-            x_min,
-            x_max,
-            y_min,
-            y_max,
-            x0,
-            x1,
-            panel_y0,
-            panel_y1,
-        )
-        figures.append((title, fig))
-
-    return figures
 
 
 def _render_exports(all_parts):
@@ -754,64 +525,10 @@ def _render_exports(all_parts):
     else:
         st.caption("Le comptage n'est lancé qu'au clic sur le bouton ci-dessus.")
 
-    st.markdown("---")
-    st.subheader("Prévisualisation portes doubles cache-pieds")
-    scene = st.session_state.get('scene_cabinets', [])
-    selected_idx = st.session_state.get('selected_cabinet_index', 0)
-    selected_cab = scene[selected_idx] if scene and 0 <= selected_idx < len(scene) else None
-    selected_door_props = (selected_cab or {}).get('door_props', {})
-    has_target_double_cachepied = bool(
-        selected_door_props.get('has_door')
-        and selected_door_props.get('door_type') == 'double'
-        and selected_door_props.get('door_model') == 'floor_length'
-    )
-
-    if has_target_double_cachepied:
-        if st.button("👁️ Générer l'aperçu (2 feuilles porte double)", key="btn_preview_double_cachepied", use_container_width=True):
-            with st.spinner("Génération des 2 feuilles d'usinage porte double cache-pieds..."):
-                door_variant_figures = _build_double_cachepied_preview_from_dxf(
-                    selected_cab,
-                    selected_idx + 1,
-                )
-                if not door_variant_figures:
-                    from export_manager import get_all_machining_plans_figures
-
-                    preview_result = get_all_machining_plans_figures([selected_cab], [selected_idx + 1])
-                    preview_figures = preview_result[0] if isinstance(preview_result, tuple) else preview_result
-                    filtered_titles = {
-                        f"PORTE GAUCHE (C{selected_idx + 1})",
-                        f"PORTE DROITE (C{selected_idx + 1})",
-                    }
-                    door_variant_figures = [
-                        (title, fig)
-                        for title, fig in preview_figures
-                        if title in filtered_titles
-                    ]
-                st.session_state['double_cachepied_preview_scene_json'] = current_scene_json
-                st.session_state['double_cachepied_preview_figures'] = door_variant_figures
-
-        preview_is_current = (
-            st.session_state.get('double_cachepied_preview_scene_json') == current_scene_json
-        )
-        if preview_is_current:
-            preview_figures = st.session_state.get('double_cachepied_preview_figures', [])
-            if preview_figures:
-                for title, fig in preview_figures:
-                    st.markdown(f"##### {title}")
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Aucune feuille variante porte n'a été trouvée pour ce caisson.")
-        else:
-            st.caption("Cliquez sur le bouton ci-dessus pour afficher les 2 feuilles d'usinage de la porte double cache-pieds du caisson sélectionné.")
-    else:
-        st.caption("Le caisson sélectionné n'est pas en porte double avec modèle cache-pieds.")
-
     if not already_generated:
         return
 
     # Afficher les boutons de téléchargement avec les données stockées
-    html_data = st.session_state['exports_html_data']
-    html_ok = st.session_state['exports_html_ok']
     dwg_data = st.session_state['exports_dwg_data']
     dwg_ok = st.session_state['exports_dwg_ok']
     dwg_filename = st.session_state['exports_dwg_filename']
@@ -860,26 +577,7 @@ def _render_exports(all_parts):
             if not (dwg_ok and dwg_data):
                 st.caption("DXF indisponible: vérifiez le message d'erreur de l'export DXF ci-dessous.")
 
-        dl_col1, dl_col2, dl_col3, dl_col4 = st.columns([1, 1, 1, 1], gap="small")
-        with dl_col1:
-            if html_ok and html_data:
-                st.download_button(
-                    "📄 Dossier Plans (HTML)", html_data,
-                    f"Dossier_{st.session_state.project_name.replace(' ', '_')}.html",
-                    "text/html", use_container_width=True,
-                )
-            else:
-                if html_data:
-                    try:
-                        error_html = html_data.decode('utf-8') if isinstance(html_data, bytes) else html_data
-                        st.error("⚠️ Erreur lors de la génération du fichier HTML.")
-                        with st.expander("Détails de l'erreur"):
-                            st.markdown(error_html, unsafe_allow_html=True)
-                    except Exception:
-                        st.error("⚠️ Erreur lors de la génération du fichier HTML. Vérifiez la console pour plus de détails.")
-                else:
-                    st.error("⚠️ Erreur lors de la génération du fichier HTML. Aucune donnée générée.")
-
+        dl_col2, dl_col3, dl_col4 = st.columns([1, 1, 1], gap="small")
         with dl_col2:
             if xls_data:
                 st.download_button(
