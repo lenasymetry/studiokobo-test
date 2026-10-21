@@ -1146,6 +1146,14 @@ JOUE_SIDE_KEYS = ('gauche', 'droite')
 # Une joue de meuble à porte avance pour couvrir l'épaisseur de la porte et le
 # jeu porte/montant.
 JOUE_DOOR_FRONT_EXTENSION = 20.0
+JOUE_TOP_BOTTOM_KEYS = ('dessus', 'dessous')
+
+
+def joue_drawer_advance_available(cabinet, joue_key):
+    """Une joue dessus/dessous peut-elle avancer devant les façades de tiroir ?
+    (caisson à tiroir(s), sans porte qui déclenche déjà l'avancée)."""
+    return (joue_key in JOUE_TOP_BOTTOM_KEYS and bool(cabinet.get('drawers'))
+            and not cabinet_has_front_door(cabinet))
 
 
 def cabinet_has_front_door(cabinet):
@@ -1217,7 +1225,10 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
         front_door = bool(span.get('front_door', front_door))
     geo = get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)
     # Meuble à porte : la joue avance de 20 mm pour couvrir la porte.
-    ext = JOUE_DOOR_FRONT_EXTENSION if front_door else 0.0
+    # Caisson à tiroir : avancée optionnelle des joues dessus/dessous (façade
+    # 19 mm + 1 mm de jeu tiroir/caisson).
+    drawer_adv = bool(joue.get('drawer_front_advance')) and joue_drawer_advance_available(cabinet, joue_key)
+    ext = JOUE_DOOR_FRONT_EXTENSION if (front_door or drawer_adv) else 0.0
     geo['width'] = float(geo['width']) + ext
     geo['front_offset'] = ext
     return geo

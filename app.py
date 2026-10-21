@@ -45,6 +45,7 @@ from machining_logic import (
     migrate_upright_wall_chants,
     migrate_traverse_wall_chants,
     cabinet_joue_dims,
+    joue_drawer_advance_available,
     joue_assembly_holes,
     apply_face_hole_depths,
     get_stacked_child_index,
@@ -2497,6 +2498,12 @@ with col1:
                             else:
                                 joue['span_up'] = False
                             apply_joue_spans(_scene_j)
+                        if enabled and joue_drawer_advance_available(selected_cab, joue_key):
+                            joue['drawer_front_advance'] = st.checkbox(
+                                "Avancer de 20 mm devant le tiroir (façade 19 mm + 1 mm de jeu)",
+                                value=bool(joue.get('drawer_front_advance', False)),
+                                key=f"joue_drawer_adv_{joue_key}_{idx}",
+                            )
                         if enabled:
                             _joue_fileur = float(selected_cab.get('door_props', {}).get('fileur_width', 0) or 0.0)
                             _joue_geo = cabinet_joue_dims(
