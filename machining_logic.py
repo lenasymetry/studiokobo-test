@@ -423,6 +423,10 @@ def merge_drawer_panel_holes(face_holes, tranche_longue_holes, tranche_cote_hole
             merged.extend(holes)
     return merged
 
+# Hauteur de porte à partir de laquelle on pose 3 charnières (2 en dessous).
+HINGE_THREE_MIN_DOOR_H = 450.0
+
+
 def get_hinge_y_positions(door_height, custom_positions=None):
     """Calcule les positions Y des charnières pour une porte de hauteur donnée.
     
@@ -438,12 +442,15 @@ def get_hinge_y_positions(door_height, custom_positions=None):
         return sorted([float(pos) for pos in custom_positions])
     
     # Sinon, utiliser le calcul par défaut
-    # 3 charnières standard : une en haut, une au milieu, une en bas
+    # 3 charnières (haut, milieu, bas) à partir de 450 mm de porte, sinon 2.
     # Espacement : 100mm du haut et du bas, puis répartition équitable
     positions = []
-    if door_height > 200:
+    if door_height >= HINGE_THREE_MIN_DOOR_H:
         positions.append(100.0)
         positions.append(door_height / 2.0)
+        positions.append(door_height - 100.0)
+    elif door_height > 200:
+        positions.append(100.0)
         positions.append(door_height - 100.0)
     elif door_height > 100:
         positions.append(50.0)
