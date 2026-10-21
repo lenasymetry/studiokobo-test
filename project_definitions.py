@@ -82,6 +82,15 @@ JOUE_COVERED_PART = {
 # (porte cache-pieds, joue latérale) : de quoi passer un tapis, une plinthe
 # souple ou un sol irrégulier sans que la façade ne frotte.
 CACHE_PIED_FLOOR_CLEARANCE = 10.0
+# Descente des portes et joues cache-pieds sous le bas du caisson (mm), fixe
+# quelle que soit la hauteur des pieds ; limitée pour garder au moins
+# CACHE_PIED_FLOOR_CLEARANCE au-dessus du sol avec des pieds bas.
+CACHE_PIED_DROP = 70.0
+
+
+def cache_pied_drop_mm(foot_height):
+    """Descente d'un panneau cache-pieds sous le caisson, en mm."""
+    return max(0.0, min(CACHE_PIED_DROP, float(foot_height or 0.0) - CACHE_PIED_FLOOR_CLEARANCE))
 
 
 def get_default_joue_props():
@@ -98,16 +107,15 @@ def get_default_joue_props():
 def get_joue_length_and_z_offset(joue_key, base_length, has_feet, foot_height):
     """Longueur réelle et décalage Z (vers le bas) d'une joue.
 
-    Les joues gauche/droite descendent devant les pieds pour les cacher : on
-    prolonge la longueur (mesure du meuble) de la hauteur des pieds, en
-    s'arrêtant à `CACHE_PIED_FLOOR_CLEARANCE` du sol — exactement comme une
-    porte cache-pieds, pour que les deux panneaux s'alignent en bas. On décale
+    Les joues gauche/droite descendent devant les pieds : on prolonge la
+    longueur de la même descente qu'une porte cache-pieds (70 mm, voir
+    `cache_pied_drop_mm`), pour que les deux panneaux s'alignent en bas. On décale
     d'autant le point de départ vers le bas. Les joues dessus/dessous ne sont
     pas concernées.
     """
     if joue_key not in ('gauche', 'droite') or not has_feet:
         return base_length, 0.0
-    extra = max(0.0, float(foot_height or 0.0) - CACHE_PIED_FLOOR_CLEARANCE)
+    extra = cache_pied_drop_mm(foot_height)
     return base_length + extra, -extra
 
 def get_joue_dimensions(joue_key, dims, has_feet=False, foot_height=0.0,

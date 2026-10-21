@@ -1,6 +1,6 @@
 import math
 
-from project_definitions import CACHE_PIED_FLOOR_CLEARANCE
+from project_definitions import CACHE_PIED_FLOOR_CLEARANCE, cache_pied_drop_mm
 
 def calculate_origins_recursively(scene_cabinets, unit_factor):
     """
@@ -223,14 +223,14 @@ def format_plinthe_labels(indices):
 def get_cache_pied_drop(has_feet, foot_height):
     """Descente d'une porte cache-pieds sous le bas du caisson, en mm.
 
-    La porte passe devant les pieds mais ne touche PAS le sol : elle s'arrête
-    `CACHE_PIED_FLOOR_CLEARANCE` mm au-dessus, de quoi glisser un tapis ou
-    absorber un sol irrégulier. Sans pieds, le caisson pose déjà au sol et la
-    porte ne descend pas plus bas que lui.
+    Descente fixe de `CACHE_PIED_DROP` (70 mm) sous le caisson, quelle que
+    soit la hauteur des pieds, limitée pour rester à au moins
+    `CACHE_PIED_FLOOR_CLEARANCE` mm du sol. Sans pieds, le caisson pose déjà
+    au sol et la porte ne descend pas plus bas que lui.
     """
     if not has_feet:
         return 0.0
-    return max(0.0, float(foot_height or 0.0) - CACHE_PIED_FLOOR_CLEARANCE)
+    return cache_pied_drop_mm(foot_height)
 
 
 def get_door_vertical_geometry(door_height_raw, door_props, has_feet=False,
