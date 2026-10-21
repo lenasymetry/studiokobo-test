@@ -28,7 +28,8 @@ from PIL import Image, ImageDraw
 from machining_logic import (calculate_all_zones_2d, get_cabinet_door_height_raw,
                              cabinet_door_is_hidden, get_door_vertical_geometry,
                              get_cache_pied_drop, door_zone_span, door_cover_span,
-                             column_filler_spans, column_filler_width)
+                             column_filler_spans, column_filler_width,
+                             cabinet_joue_dims)
 from project_definitions import get_joue_dimensions
 
 # Résolution du rendu 3D matriciel (pixels par pouce de la zone de vue).
@@ -962,7 +963,9 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
         joue = joues.get(key, {}) or {}
         if not bool(joue.get("enabled", False)):
             continue
-        geo = get_joue_dimensions(key, dims, cab_has_feet, cab_foot_height, fileur_w)
+        geo = cabinet_joue_dims(cab, key, cab_has_feet, cab_foot_height, fileur_w)
+        if geo is None:
+            continue  # recouverte par la joue commune du caisson du dessous
         jw, jl, jt = geo["width"], geo["length"], geo["thickness"]
         jx_offset, jz_offset = geo["x_offset"], geo["z_offset"]
         if jw <= 0.0 or jl <= 0.0 or jt <= 0.0:

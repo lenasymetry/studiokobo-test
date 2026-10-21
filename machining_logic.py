@@ -1070,3 +1070,63 @@ def door_cover_span(cabinet):
     ou None si elle couvre tout le caisson. Voir column_cover_span."""
     span = door_zone_span(cabinet)
     return column_cover_span(cabinet, span) if span is not None else None
+
+
+JOUE_SIDE_KEYS = ('gauche', 'droite')
+
+
+def apply_joue_spans(scene_cabinets):
+    """Inscrit sur chaque caisson l'état résolu de ses joues latérales.
+
+    `joue_spans[cote]` :
+    - span_height : hauteur couverte (celle du caisson, + celle du caisson du
+      dessus si la joue leur est commune) ;
+    - covered : joue masquée par la joue commune du caisson du dessous ;
+    - on_floor : le caisson repose au sol (seule condition pour qu'une joue
+      cache-pieds descende devant les pieds).
+    """
+    for i, cab in enumerate(scene_cabinets):
+        H = float(cab.get('dims', {}).get('H_raw', 0.0) or 0.0)
+        joues = cab.get('joues', {}) or {}
+        child = get_stacked_child_index(scene_cabinets, i)
+        parent = cab.get('parent_index')
+        is_upper = parent is not None and cab.get('attachment_dir') == 'up' and 0 <= parent < len(scene_cabinets)
+        spans = {}
+        for key in JOUE_SIDE_KEYS:
+            joue = joues.get(key, {}) or {}
+            span_up = bool(joue.get('enabled') and joue.get('span_up') and child is not None)
+            span_h = H
+            if span_up:
+                span_h += float(scene_cabinets[child].get('dims', {}).get('H_raw', 0.0) or 0.0)
+            covered = False
+            if is_upper:
+                pj = (scene_cabinets[parent].get('joues', {}) or {}).get(key, {}) or {}
+                covered = bool(pj.get('enabled') and pj.get('span_up'))
+            spans[key] = {
+                'span_height': span_h,
+                'span_up': span_up,
+                'covered': covered,
+                'on_floor': cabinet_rests_on_floor(scene_cabinets, i),
+            }
+        cab['joue_spans'] = spans
+    return scene_cabinets
+
+
+def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur_width=0.0):
+    """Dimensions d'une joue en tenant compte de la joue commune (caissons
+    superposés) et du modèle cache-pieds. None si la joue est masquée par la
+    joue commune du caisson du dessous."""
+    from project_definitions import get_joue_dimensions
+    joue = (cabinet.get('joues', {}) or {}).get(joue_key, {}) or {}
+    dims = dict(cabinet.get('dims', {}) or {})
+    feet = False
+    if joue_key in JOUE_SIDE_KEYS:
+        span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
+        if span.get('covered'):
+            return None
+        dims['H_raw'] = float(span.get('span_height', dims.get('H_raw', 0.0)) or 0.0)
+        # Modèle cache-pieds (défaut, comportement historique) : descend devant
+        # les pieds uniquement si le caisson repose au sol.
+        feet = bool(has_feet) and joue.get('model', 'floor_length') == 'floor_length' \
+            and span.get('on_floor', True)
+    return get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)

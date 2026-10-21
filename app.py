@@ -47,6 +47,8 @@ from machining_logic import (
     calculate_all_zones_2d,
     calculate_origins_recursively,
     apply_door_spans,
+    apply_joue_spans,
+    cabinet_joue_dims,
     get_stacked_child_index,
     get_cabinet_door_height_raw,
     cabinet_door_is_hidden,
@@ -89,6 +91,7 @@ def _sync_door_spans():
     directement dans `door_props` pendant le rendu de la page).
     """
     apply_door_spans(st.session_state.get('scene_cabinets', []) or [])
+    apply_joue_spans(st.session_state.get('scene_cabinets', []) or [])
 
 
 _sync_door_spans()
@@ -1205,13 +1208,21 @@ def calculate_all_project_parts():
                 'Chant Gauche': False,
                 'Chant Droit': False,
             })
-            joue_geo = get_joue_dimensions(
-                joue_key, dims, cabinet_has_feet,
+            # Joue commune (caissons superposés) et modèle cache-pieds pris en compte.
+            joue_geo = cabinet_joue_dims(
+                cabinet, joue_key, cabinet_has_feet,
                 st.session_state.get('foot_height', 0.0), fileur_w
             )
+            if joue_geo is None:
+                continue  # recouverte par la joue commune du caisson du dessous
+            _joue_span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
+            _joue_ref = f"{joue_label} (C{i})"
+            if _joue_span.get('span_up'):
+                _child = get_stacked_child_index(st.session_state['scene_cabinets'], i)
+                _joue_ref = f"{joue_label} commune (C{i}+C{_child})"
             all_parts.append({
                 "Lettre": f"C{i}-J{joue_key[:1].upper()}",
-                "Référence Pièce": f"{joue_label} (C{i})",
+                "Référence Pièce": _joue_ref,
                 "Matière": str(joue.get('material', 'Matière Corps')),
                 "Caisson": f"C{i}",
                 "Qté": 1,
@@ -2708,8 +2719,9 @@ with col1:
                     st.caption(
                         "Les cotes des joues sont automatiques : chaque joue recouvre "
                         "exactement le montant ou la traverse qui lui est associé. "
-                        "Sur pieds, les joues gauche et droite descendent jusqu'au sol "
-                        "pour cacher les pieds, comme une porte cache-pieds."
+                        "Joues gauche et droite : modèle standard ou cache-pieds (sur pieds, "
+                        "elle descend jusqu'au sol comme une porte cache-pieds), et joue "
+                        "commune possible avec le caisson posé au-dessus."
                     )
                     # Migration douce: anciennes versions stockaient les joues dans door_props.
                     legacy_joues = d_p.get('joues') if isinstance(d_p, dict) else None
@@ -2731,6 +2743,14 @@ with col1:
                     ]:
                         joue = joues.setdefault(joue_key, get_default_joue_props())
                         st.markdown(f"##### {joue_label}")
+                        _scene_j = st.session_state.get('scene_cabinets', [])
+                        _jspan = (selected_cab.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
+                        if joue_key in ('gauche', 'droite') and _jspan.get('covered'):
+                            st.info(
+                                f"Ce côté est habillé par la {joue_label.lower()} commune du "
+                                "caisson du dessous : réglez-la sur ce caisson."
+                            )
+                            continue
                         enabled = st.checkbox(
                             f"Activer {joue_label.lower()}",
                             value=bool(joue.get('enabled', False)),
@@ -2743,14 +2763,40 @@ with col1:
                         joue.pop('width', None)
                         joue.pop('length', None)
                         joue.pop('thickness', None)
+                        if enabled and joue_key in ('gauche', 'droite'):
+                            # Modèle, comme pour les portes : standard ou cache-pieds.
+                            _jm = joue.get('model', 'floor_length')
+                            joue['model'] = st.selectbox(
+                                "Modèle",
+                                options=['standard', 'floor_length'],
+                                index=0 if _jm == 'standard' else 1,
+                                format_func=lambda x: 'Standard' if x == 'standard' else 'Cache-pieds',
+                                key=f"joue_model_{joue_key}_{idx}",
+                            )
+                            # Joue commune aux deux caissons superposés.
+                            _child_j = get_stacked_child_index(_scene_j, idx)
+                            if _child_j is not None:
+                                joue['span_up'] = st.checkbox(
+                                    "Joue commune avec le caisson du dessus",
+                                    value=bool(joue.get('span_up', False)),
+                                    key=f"joue_span_up_{joue_key}_{idx}",
+                                )
+                                if joue['span_up'] and abs(
+                                    float(_scene_j[_child_j]['dims']['W_raw']) - float(selected_cab['dims']['W_raw'])
+                                ) > 0.5:
+                                    st.warning("Les deux caissons n'ont pas la même profondeur : "
+                                               "la joue commune prend celle du caisson du bas.")
+                            else:
+                                joue['span_up'] = False
+                            apply_joue_spans(_scene_j)
                         if enabled:
                             _joue_fileur = float(selected_cab.get('door_props', {}).get('fileur_width', 0) or 0.0)
-                            _joue_geo = get_joue_dimensions(
-                                joue_key, selected_cab['dims'],
+                            _joue_geo = cabinet_joue_dims(
+                                selected_cab, joue_key,
                                 bool(st.session_state.get('has_feet', False) or selected_cab.get('has_feet', False)),
                                 st.session_state.get('foot_height', 0.0),
                                 _joue_fileur,
-                            )
+                            ) or get_joue_dimensions(joue_key, selected_cab['dims'])
                             st.caption(
                                 f"Recouvre : {JOUE_COVERED_PART.get(joue_key, '')} — "
                                 f"{_joue_geo['length']:.0f} × {_joue_geo['width']:.0f} × "
@@ -4289,10 +4335,12 @@ with col2:
                     if not bool(joue.get('enabled', False)):
                         continue
 
-                    joue_geo = get_joue_dimensions(
-                        joue_key, cab_render['dims'], cab_render_has_feet,
+                    joue_geo = cabinet_joue_dims(
+                        cab_render, joue_key, cab_render_has_feet,
                         cab_render_foot_height, cab_render_fileur_w
                     )
+                    if joue_geo is None:
+                        continue  # recouverte par la joue commune du caisson du dessous
                     if joue_geo['width'] <= 0 or joue_geo['length'] <= 0 or joue_geo['thickness'] <= 0:
                         continue
 

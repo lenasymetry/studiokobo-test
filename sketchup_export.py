@@ -19,7 +19,8 @@ from typing import List, Tuple, Dict
 
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, door_zone_span, door_cover_span,
-                             column_filler_spans, column_filler_width)
+                             column_filler_spans, column_filler_width,
+                             cabinet_joue_dims)
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +552,27 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
                               f"Fileur colonne {_fk} – {cab_label}",
                               ox + _fspan[0] + gap, d_y, d_z,
                               _fw, door_th, d_H, mat="mat_door")
+
+        # ── Joues (habillages latéraux / dessus / dessous) ─────────────
+        _fil_j = float((cabinet.get("door_props", {}) or {}).get("fileur_width", 0) or 0.0)
+        for _jk, _jlabel in (("gauche", "Joue gauche"), ("droite", "Joue droite"),
+                             ("dessus", "Joue dessus"), ("dessous", "Joue dessous")):
+            _joue = (cabinet.get("joues", {}) or {}).get(_jk, {}) or {}
+            if not _joue.get("enabled"):
+                continue
+            _g = cabinet_joue_dims(cabinet, _jk, bool(cabinet.get("has_feet", False)),
+                                   cabinet.get("foot_height", 0.0), _fil_j)
+            if _g is None or _g["length"] <= 0 or _g["width"] <= 0 or _g["thickness"] <= 0:
+                continue
+            _jt, _jw, _jl = _g["thickness"], _g["width"], _g["length"]
+            if _jk == "gauche":
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox - _jt, oy, oz + _g["z_offset"], _jt, _jw, _jl)
+            elif _jk == "droite":
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + L, oy, oz + _g["z_offset"], _jt, _jw, _jl)
+            elif _jk == "dessus":
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], oy, oz + H, _jl, _jw, _jt)
+            else:
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], oy, oz - _jt, _jl, _jw, _jt)
 
         # ── Façades de tiroir ───────────────────────────────────────────
         for j, drp in enumerate(cabinet.get("drawers", [])):
