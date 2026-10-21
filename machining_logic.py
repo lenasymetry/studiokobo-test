@@ -1151,8 +1151,10 @@ JOUE_TOP_BOTTOM_KEYS = ('dessus', 'dessous')
 
 def joue_drawer_advance_available(cabinet, joue_key):
     """Une joue dessus/dessous peut-elle avancer devant les façades de tiroir ?
-    (caisson à tiroir(s), sans porte qui déclenche déjà l'avancée)."""
-    return (joue_key in JOUE_TOP_BOTTOM_KEYS and bool(cabinet.get('drawers'))
+    (caisson à tiroir(s) en applique — seuls leurs façades sortent du caisson —
+    sans porte qui déclenche déjà l'avancée)."""
+    has_applique = any(bool((d or {}).get('_applique_mode')) for d in (cabinet.get('drawers') or []))
+    return (joue_key in JOUE_TOP_BOTTOM_KEYS and has_applique
             and not cabinet_has_front_door(cabinet))
 
 
