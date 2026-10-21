@@ -2707,7 +2707,7 @@ with col1:
                                 st.text_input("Matière", value=s.get('material', 'Matière Étagère'), key=f"shelf_m_{idx}_{i}", on_change=lambda x=i: update_shelf_material(x, 'material'))
                                 if s_type == 'mobile':
                                     st.caption("Perçage crémaillère : 2 rangées ⌀5 prof. 12 à 50 mm des bords, "
-                                               "pas de 32 mm sur toute la hauteur de la zone (communes à toutes "
+                                               "pas de 64 mm sur toute la hauteur de la zone (communes à toutes "
                                                "les étagères mobiles de la zone).")
                                 st.button("Supprimer cette étagère 🗑️", key=f"del_shelf_{idx}_{i}", on_click=lambda x=i: delete_shelf_callback(x))
                     

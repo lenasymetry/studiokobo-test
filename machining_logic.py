@@ -462,11 +462,11 @@ def get_hinge_y_positions(door_height, custom_positions=None):
     return positions
 
 # Étagères mobiles en crémaillère : 2 rangées verticales de trous ⌀5 prof. 12,
-# à 50 mm des bords avant et arrière du panneau, pas de 32 mm, sur toute la
+# à 50 mm des bords avant et arrière du panneau, pas de 64 mm, sur toute la
 # hauteur de la zone. Un seul jeu de trous par face, quel que soit le nombre
 # d'étagères mobiles.
 MOBILE_RACK_EDGE_MM = 50.0
-MOBILE_RACK_PITCH_MM = 32.0
+MOBILE_RACK_PITCH_MM = 64.0   # un trou sur deux du système 32
 MOBILE_RACK_END_MARGIN_MM = 32.0   # marge mini sous/sur la série de trous
 MOBILE_RACK_DIAM = "⌀5/12"
 
@@ -490,7 +490,7 @@ def mobile_shelf_rack_y_range(cabinet, x_min, x_max, y_shelf):
 
 def mobile_shelf_rack_holes(panel_w, y_min, y_max):
     """Trous de crémaillère d'une face : 2 rangées (x = 50 et panel_w - 50),
-    pas de 32 mm, série centrée dans [y_min, y_max] avec au moins 32 mm de
+    pas de 64 mm, série centrée dans [y_min, y_max] avec au moins 32 mm de
     marge à chaque bout."""
     span = float(y_max) - float(y_min) - 2.0 * MOBILE_RACK_END_MARGIN_MM
     if span < 0.0 or float(panel_w) <= 2.0 * MOBILE_RACK_EDGE_MM:
