@@ -1291,8 +1291,8 @@ def joue_dowel_heights(H):
 
 
 def joue_dowel_depths(W):
-    """Les 2 lignes verticales : aux tiers de la profondeur du montant."""
-    return [float(W) / 3.0, 2.0 * float(W) / 3.0]
+    """Les 2 lignes verticales : à 1/4 et 3/4 de la profondeur du montant."""
+    return [float(W) / 4.0, 3.0 * float(W) / 4.0]
 
 
 def upright_has_joue(cabinet, upright):
