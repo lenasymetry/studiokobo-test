@@ -61,7 +61,8 @@ def get_default_debit_data():
             "Chant Avant": True,
             "Chant Arrière": True,
             "Chant Gauche": True,
-            "Chant Droit": True,
+            # Tranche arrière, contre le mur : pas de chant.
+            "Chant Droit": False,
             "Usinage": ""
         },
         {
@@ -71,7 +72,8 @@ def get_default_debit_data():
             "Epaisseur": 0,
             "Chant Avant": True,
             "Chant Arrière": True,
-            "Chant Gauche": True,
+            # Tranche arrière, contre le mur : pas de chant.
+            "Chant Gauche": False,
             "Chant Droit": True,
             "Usinage": ""
         },

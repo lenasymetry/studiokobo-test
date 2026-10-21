@@ -1130,3 +1130,35 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
         feet = bool(has_feet) and joue.get('model', 'floor_length') == 'floor_length' \
             and span.get('on_floor', True)
     return get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)
+
+
+# Tranche arrière (contre le mur) d'un montant principal, dans le repère commun
+# feuille de débit / feuille d'usinage (avant du montant gauche en x = 0,
+# avant du montant droit en x = largeur).
+UPRIGHT_WALL_EDGE = {'Montant Gauche': 'Chant Droit', 'Montant Droit': 'Chant Gauche'}
+
+
+def migrate_upright_wall_chants(scene_cabinets):
+    """Une seule fois par caisson : retire le chant de la tranche contre le mur
+    des montants principaux encore réglés « tout chanté » (ancien défaut)."""
+    for cab in scene_cabinets:
+        if cab.get('_upright_wall_chant_v2'):
+            continue
+        for piece in cab.get('debit_data', []) or []:
+            ref = str(piece.get('Référence Pièce', '')).split(' (')[0].strip()
+            edge = UPRIGHT_WALL_EDGE.get(ref)
+            if edge and all(bool(piece.get(k, True)) for k in
+                            ('Chant Avant', 'Chant Arrière', 'Chant Gauche', 'Chant Droit')):
+                piece[edge] = False
+        cab['_upright_wall_chant_v2'] = True
+    return scene_cabinets
+
+
+def debit_piece_chants(cabinet, ref_key, default):
+    """Chants d'une pièce de structure tels que réglés dans la feuille de débit."""
+    for piece in cabinet.get('debit_data', []) or []:
+        ref = str(piece.get('Référence Pièce', '')).split(' (')[0].strip()
+        if ref == ref_key:
+            return {k: bool(piece.get(k, default.get(k, False))) for k in
+                    ('Chant Avant', 'Chant Arrière', 'Chant Gauche', 'Chant Droit')}
+    return dict(default)

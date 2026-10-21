@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_mobile_shelf_holes, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1688,9 +1688,11 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             if base_el.get('has_top_traverse', True):
                 plans.append(("Traverse Haut (Th)", L_trav, W_inner, t_tb, c_trav, traverse_face_holes_right, tholes_longue, tholes_cote, None))
             if base_el.get('has_left_upright', True):
-                plans.append(("Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mont, holes_mg, [], tranche_holes_mg, None))
+                c_mg = debit_piece_chants(cab, "Montant Gauche", dict(c_mont, **{"Chant Droit": False}))
+                plans.append(("Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, [], tranche_holes_mg, None))
             if base_el.get('has_right_upright', True):
-                plans.append(("Montant Droit (Md)", W_mont, h_side, t_lr, c_mont, holes_md, [], tranche_holes_md, None))
+                c_md = debit_piece_chants(cab, "Montant Droit", dict(c_mont, **{"Chant Gauche": False}))
+                plans.append(("Montant Droit (Md)", W_mont, h_side, t_lr, c_md, holes_md, [], tranche_holes_md, None))
             if base_el.get('has_back_panel', True):
                 plans.append(("Panneau Arrière (F)", W_back, H_back, t_fb, c_fond, holes_fond, fond_t_long, fond_t_cote, None))
 
@@ -2549,14 +2551,16 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         
         fig_mg = draw_machining_view_pro_final(
             f"Montant Gauche (C{cab_idx})", W_mont, h_side, t_lr,
-            st.session_state.unit_select, proj, c_mont,
+            st.session_state.unit_select, proj,
+            debit_piece_chants(cab, "Montant Gauche", dict(c_mont, **{"Chant Droit": False})),
             holes_mg, tranche_holes_mg, [], None, False
         )
         all_figures.append((f"Montant Gauche (C{cab_idx})", fig_mg))
         
         fig_md = draw_machining_view_pro_final(
             f"Montant Droit (C{cab_idx})", W_mont, h_side, t_lr,
-            st.session_state.unit_select, proj, c_mont,
+            st.session_state.unit_select, proj,
+            debit_piece_chants(cab, "Montant Droit", dict(c_mont, **{"Chant Gauche": False})),
             holes_md, tranche_holes_md, [], None, False
         )
         all_figures.append((f"Montant Droit (C{cab_idx})", fig_md))
