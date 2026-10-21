@@ -597,6 +597,14 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         "right": (Wd + gap["right"], 0, Wd + gap["right"] + td, Hd),
     }
     dimensioned_signature = {}
+    # Signature (axe, positions) des perçages de chaque tranche.
+    side_sig = {}
+    for sd, (sx0, sy0, sx1, sy1) in tranche_rects.items():
+        e = sides[sd]["edge"]
+        pts = [sheet.edge_point(e, h["_t"]) for h in sides[sd]["holes"]]
+        if pts:
+            hz = sd in ("bottom", "top")
+            side_sig[sd] = (hz, tuple(round(p, 1) for p in _unique_sorted([pt[0] if hz else pt[1] for pt in pts])))
     for side, (x0, y0, x1, y1) in tranche_rects.items():
         info = sides[side]
         edge = info["edge"]
@@ -625,6 +633,8 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
             continue
         # Une seule chaîne par jeu de perçages identique (bords opposés).
         sig = (horizontal, tuple(round(p, 1) for p in _unique_sorted(positions)))
+        # Bords qui partagent ce jeu : l'appel compte leurs trous à tous.
+        n_same = sum(1 for sd in sides if side_sig.get(sd) == sig) or 1
         if sig in dimensioned_signature:
             continue
         dimensioned_signature[sig] = side
@@ -648,15 +658,15 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         for k, (ds, hs) in enumerate(groups.items()):
             px, py = sheet.edge_point(edge, hs[0]["_t"])
             if side == "bottom":
-                D.callout((px, cy_mid), (px + 4 * s, y0 - (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), _hole_label(ds), len(hs))
+                D.callout((px, cy_mid), (px + 4 * s, y0 - (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), _hole_label(ds), len(hs) * n_same)
             elif side == "top":
-                D.callout((px, cy_mid), (px + 4 * s, y1 + (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), _hole_label(ds), len(hs))
+                D.callout((px, cy_mid), (px + 4 * s, y1 + (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), _hole_label(ds), len(hs) * n_same)
             elif side == "left":
                 D.callout((cx_mid, py), (x0 - (DIM_ROW + extra + DIM_STEP) * s, py + 4 * s + k * DIM_STEP * s),
-                          _hole_label(ds), len(hs), to_left=True)
+                          _hole_label(ds), len(hs) * n_same, to_left=True)
             else:
                 D.callout((cx_mid, py), (x1 + (DIM_ROW + extra + DIM_STEP) * s, py + 4 * s + k * DIM_STEP * s),
-                          _hole_label(ds), len(hs))
+                          _hole_label(ds), len(hs) * n_same)
 
     # --- Perçages en face --------------------------------------------------------
     face = sheet.face_holes()

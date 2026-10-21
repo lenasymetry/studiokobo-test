@@ -2269,11 +2269,12 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                 return kwargs[name] or ()
             return args[pos] if len(args) > pos and args[pos] else ()
 
-        holes = []
-        for pos, name in ((6, "face_holes_list"),
-                          (7, "tranche_longue_holes_list"),
+        holes = list(_holes(6, "face_holes_list"))
+        # Perçages de tranche : chaque liste est percée sur les DEUX tranches
+        # opposées de la pièce (haut + bas, ou gauche + droite).
+        for pos, name in ((7, "tranche_longue_holes_list"),
                           (8, "tranche_cote_holes_list")):
-            holes.extend(_holes(pos, name))
+            holes.extend(list(_holes(pos, name)) * 2)
 
         proj_info = kwargs.get("project_info")
         if proj_info is None and len(args) > 4:
