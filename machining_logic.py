@@ -262,6 +262,37 @@ def get_stacked_child_index(scene_cabinets, cab_index):
     return None
 
 
+# Un caisson est « posé sur » un autre si son bas touche le dessus de celui-ci,
+# à la même position X et façade alignée, à ce jeu près.
+STACK_JOIN_TOLERANCE = 1.0
+
+
+def get_cabinet_above_index(scene_cabinets, cab_index, origins=None):
+    """Caisson posé sur `cab_index`, quelle que soit la façon dont il a été ajouté.
+
+    `get_stacked_child_index` ne voit que le caisson ajouté « en haut » de
+    celui-ci. Dans deux colonnes côte à côte, le caisson du haut de la seconde
+    colonne est souvent ajouté « à droite » du haut de la première : il est
+    pourtant bien posé sur le bas de la seconde. On le retrouve ici par la
+    géométrie, la relation directe restant prioritaire.
+    """
+    direct = get_stacked_child_index(scene_cabinets, cab_index)
+    if direct is not None or not (0 <= cab_index < len(scene_cabinets)):
+        return direct
+    if origins is None:
+        origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    tol = STACK_JOIN_TOLERANCE
+    ox, oy, oz = origins[cab_index]
+    top = oz + float((scene_cabinets[cab_index].get('dims', {}) or {}).get('H_raw', 0.0) or 0.0)
+    for j in range(len(scene_cabinets)):
+        if j == cab_index:
+            continue
+        x, y, z = origins[j]
+        if abs(x - ox) <= tol and abs(y - oy) <= tol and abs(z - top) <= tol:
+            return j
+    return None
+
+
 def door_spans_stacked(scene_cabinets, cab_index):
     """La porte de ce caisson couvre-t-elle aussi le caisson du dessus ?"""
     if not (0 <= cab_index < len(scene_cabinets)):
@@ -1319,12 +1350,17 @@ def apply_joue_spans(scene_cabinets):
     - on_floor : le caisson repose au sol (seule condition pour qu'une joue
       cache-pieds descende devant les pieds).
     """
+    # Caisson posé sur chacun (par la géométrie : voir get_cabinet_above_index),
+    # et en retour celui sur lequel chacun repose.
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    above = [get_cabinet_above_index(scene_cabinets, i, origins) for i in range(len(scene_cabinets))]
+    below = {j: i for i, j in enumerate(above) if j is not None}
     for i, cab in enumerate(scene_cabinets):
         H = float(cab.get('dims', {}).get('H_raw', 0.0) or 0.0)
         joues = cab.get('joues', {}) or {}
-        child = get_stacked_child_index(scene_cabinets, i)
-        parent = cab.get('parent_index')
-        is_upper = parent is not None and cab.get('attachment_dir') == 'up' and 0 <= parent < len(scene_cabinets)
+        child = above[i]
+        parent = below.get(i)
+        is_upper = parent is not None
         spans = {}
         for key in JOUE_SIDE_KEYS:
             joue = joues.get(key, {}) or {}
@@ -1575,7 +1611,7 @@ def joue_assembly_holes(scene_cabinets, cab_index, joue_key, has_feet=False, foo
     covered = [(cab, 0.0)]
     span = (cab.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
     if span.get('span_up'):
-        child = get_stacked_child_index(scene_cabinets, cab_index)
+        child = get_cabinet_above_index(scene_cabinets, cab_index)
         if child is not None:
             covered.append((scene_cabinets[child], float(cab.get('dims', {}).get('H_raw', 0.0))))
     holes = []

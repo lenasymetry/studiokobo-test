@@ -69,6 +69,7 @@ from machining_logic import (
     column_filler_width,
     compute_drawer_stack_layout,
     get_top_joue_neighbor_index,
+    get_cabinet_above_index,
 )
 from utils import calculate_available_space_between_horizontal_shelves
 
@@ -944,7 +945,7 @@ def calculate_all_project_parts():
             _joue_span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
             _joue_ref = f"{joue_label} (C{i})"
             if _joue_span.get('span_up'):
-                _child = get_stacked_child_index(st.session_state['scene_cabinets'], i)
+                _child = get_cabinet_above_index(st.session_state["scene_cabinets"], i)
                 _joue_ref = f"{joue_label} commune (C{i}+C{_child})"
             elif joue_key == 'dessus' and _joue_span.get('span_right'):
                 _joue_ref = f"{joue_label} commune (C{i}+C{_joue_span.get('neighbor')})"
@@ -2511,7 +2512,7 @@ with col1:
                                 key=f"joue_model_{joue_key}_{idx}",
                             )
                             # Joue commune aux deux caissons superposés.
-                            _child_j = get_stacked_child_index(_scene_j, idx)
+                            _child_j = get_cabinet_above_index(_scene_j, idx)
                             if _child_j is not None:
                                 joue['span_up'] = st.checkbox(
                                     "Joue commune avec le caisson du dessus",
