@@ -1347,6 +1347,78 @@ def apply_joue_spans(scene_cabinets):
                 'on_floor': cabinet_rests_on_floor(scene_cabinets, i),
             }
         cab['joue_spans'] = spans
+    _apply_top_joue_spans(scene_cabinets)
+    return scene_cabinets
+
+
+# Deux caissons sont « côte à côte » pour une joue de dessus commune si leurs
+# bords se touchent et que leurs dessus et leurs façades sont alignés, à ce
+# jeu près.
+TOP_JOUE_JOIN_TOLERANCE = 1.0
+
+
+def _fileur_sides(cab):
+    """Largeur du fileur à gauche et à droite du caisson, en mm."""
+    dp = cab.get('door_props', {}) or {}
+    fileur = float(dp.get('fileur_width', 0) or 0.0)
+    if fileur <= 0.0:
+        return 0.0, 0.0
+    return (fileur, 0.0) if dp.get('door_opening', 'right') == 'left' else (0.0, fileur)
+
+
+def get_top_joue_neighbor_index(scene_cabinets, cab_index, origins=None):
+    """Caisson accolé à droite de `cab_index`, dessus et façade alignés, sinon None."""
+    if not (0 <= cab_index < len(scene_cabinets)):
+        return None
+    if origins is None:
+        origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    tol = TOP_JOUE_JOIN_TOLERANCE
+    cab = scene_cabinets[cab_index]
+    d = cab.get('dims', {}) or {}
+    x_end = origins[cab_index][0] + float(d.get('L_raw', 0.0) or 0.0)
+    top = origins[cab_index][2] + float(d.get('H_raw', 0.0) or 0.0)
+    for j, other in enumerate(scene_cabinets):
+        if j == cab_index:
+            continue
+        od = other.get('dims', {}) or {}
+        if (abs(origins[j][0] - x_end) <= tol
+                and abs(origins[j][1] - origins[cab_index][1]) <= tol
+                and abs(origins[j][2] + float(od.get('H_raw', 0.0) or 0.0) - top) <= tol):
+            return j
+    return None
+
+
+def _apply_top_joue_spans(scene_cabinets):
+    """Joue de dessus commune à deux caissons côte à côte (`joues.dessus.span_right`).
+
+    Pendant des joues latérales communes aux caissons superposés : la joue du
+    caisson de gauche s'allonge sur celui de droite, dont la joue de dessus est
+    alors masquée (`covered`). Un caisson déjà couvert ne peut pas lancer sa
+    propre joue commune : on parcourt donc les caissons de gauche à droite.
+    """
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    covered = set()
+    order = sorted(range(len(scene_cabinets)), key=lambda k: origins[k][0])
+    for i in order:
+        cab = scene_cabinets[i]
+        joue = (cab.get('joues', {}) or {}).get('dessus', {}) or {}
+        neighbor = get_top_joue_neighbor_index(scene_cabinets, i, origins)
+        is_covered = i in covered
+        span_right = bool(joue.get('enabled') and joue.get('span_right')
+                          and neighbor is not None and not is_covered)
+        span = {'covered': is_covered, 'span_right': span_right,
+                'neighbor': neighbor, 'front_door': cabinet_has_front_door(cab)}
+        if span_right:
+            covered.add(neighbor)
+            nb = scene_cabinets[neighbor]
+            # Du début utile de ce caisson (après un fileur à gauche) à la fin
+            # utile du voisin (avant un fileur à droite).
+            start = origins[i][0] + _fileur_sides(cab)[0]
+            end = (origins[neighbor][0] + float(nb.get('dims', {}).get('L_raw', 0.0) or 0.0)
+                   - _fileur_sides(nb)[1])
+            span['span_length'] = max(0.0, end - start)
+            span['front_door'] = span['front_door'] or cabinet_has_front_door(nb)
+        cab.setdefault('joue_spans', {})['dessus'] = span
     return scene_cabinets
 
 
@@ -1369,6 +1441,16 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
         feet = bool(has_feet) and joue.get('model', 'floor_length') == 'floor_length' \
             and span.get('on_floor', True)
         front_door = bool(span.get('front_door', front_door))
+    elif joue_key == 'dessus':
+        span = (cabinet.get('joue_spans', {}) or {}).get('dessus', {}) or {}
+        if span.get('covered'):
+            return None
+        if span.get('span_right'):
+            # Joue commune avec le caisson de droite : la longueur couvre les
+            # deux caissons (fileurs d'extrémité exclus, déjà déduits).
+            dims['L_raw'] = float(span.get('span_length', dims.get('L_raw', 0.0)) or 0.0)
+            fileur_width = 0.0
+            front_door = bool(span.get('front_door', front_door))
     geo = get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)
     # Meuble à porte : la joue avance de 20 mm pour couvrir la porte.
     # Caisson à tiroir : avancée optionnelle des joues dessus/dessous (façade

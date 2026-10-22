@@ -68,6 +68,7 @@ from machining_logic import (
     column_filler_spans,
     column_filler_width,
     compute_drawer_stack_layout,
+    get_top_joue_neighbor_index,
 )
 from utils import calculate_available_space_between_horizontal_shelves
 
@@ -945,6 +946,8 @@ def calculate_all_project_parts():
             if _joue_span.get('span_up'):
                 _child = get_stacked_child_index(st.session_state['scene_cabinets'], i)
                 _joue_ref = f"{joue_label} commune (C{i}+C{_child})"
+            elif joue_key == 'dessus' and _joue_span.get('span_right'):
+                _joue_ref = f"{joue_label} commune (C{i}+C{_joue_span.get('neighbor')})"
             all_parts.append({
                 "Lettre": f"C{i}-J{joue_key[:1].upper()}",
                 "Référence Pièce": _joue_ref,
@@ -1228,7 +1231,7 @@ def calculate_all_project_parts():
 
 def get_cached_project_parts():
     """Calcule la feuille de debit seulement quand la scene change."""
-    PARTS_CACHE_SCHEMA_VERSION = "v6_plinthe_joined_across_cabinets"
+    PARTS_CACHE_SCHEMA_VERSION = "v7_top_joue_shared_side_by_side"
     scene_json = _scene_to_json(st.session_state['scene_cabinets'])
     parts_context = {
         "has_feet": bool(st.session_state.get('has_feet', False)),
@@ -2479,6 +2482,12 @@ with col1:
                                 "caisson du dessous : réglez-la sur ce caisson."
                             )
                             continue
+                        if joue_key == 'dessus' and _jspan.get('covered'):
+                            st.info(
+                                "Le dessus est habillé par la joue de dessus commune du "
+                                "caisson de gauche : réglez-la sur ce caisson."
+                            )
+                            continue
                         enabled = st.checkbox(
                             f"Activer {joue_label.lower()}",
                             value=bool(joue.get('enabled', False)),
@@ -2516,6 +2525,24 @@ with col1:
                                                "la joue commune prend celle du caisson du bas.")
                             else:
                                 joue['span_up'] = False
+                            apply_joue_spans(_scene_j)
+                        if joue_key == 'dessus':
+                            # Joue de dessus commune aux deux caissons côte à côte
+                            # (pendant de la joue latérale commune des superposés).
+                            _right_j = get_top_joue_neighbor_index(_scene_j, idx) if enabled else None
+                            if _right_j is not None:
+                                joue['span_right'] = st.checkbox(
+                                    "Joue de dessus commune avec le caisson de droite",
+                                    value=bool(joue.get('span_right', False)),
+                                    key=f"joue_span_right_{joue_key}_{idx}",
+                                )
+                                if joue['span_right'] and abs(
+                                    float(_scene_j[_right_j]['dims']['W_raw']) - float(selected_cab['dims']['W_raw'])
+                                ) > 0.5:
+                                    st.warning("Les deux caissons n'ont pas la même profondeur : "
+                                               "la joue commune prend celle du caisson de gauche.")
+                            else:
+                                joue['span_right'] = False
                             apply_joue_spans(_scene_j)
                         if enabled and joue_drawer_advance_available(selected_cab, joue_key):
                             joue['drawer_front_advance'] = st.checkbox(
