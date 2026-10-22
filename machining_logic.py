@@ -833,6 +833,46 @@ def calculate_all_zones_2d(cabinet, include_all_elements=True):
     
     return zones
 
+
+DRAWER_STACK_GAP_MM = 2.0
+
+
+def compute_drawer_stack_layout(cabinet, zone, stack_count, applique=False):
+    """Hauteur des faces et position basse de chaque tiroir d'un assemblage empilé.
+
+    Retourne une liste de `(drawer_bottom_offset, drawer_face_H_raw)` en mm, du bas
+    vers le haut, dans la convention de `drawer_bottom_offset` : depuis le bas
+    EXTÉRIEUR du caisson (comme les `y_min` / `y_max` des zones).
+
+    `zone` : une zone de `calculate_all_zones_2d`, ou None pour tout le caisson
+    (équivaut à la zone intérieure complète, de la traverse basse à la haute).
+    Les tiroirs se répartissent la hauteur de la zone, 2 mm entre deux tiroirs.
+
+    - Encastré : 2 mm de jeu en bas et en haut de la zone.
+    - En applique : contre la traverse basse ou haute, la face recouvre la
+      traverse (mêmes cotes qu'avant pour tout le caisson : de -1 à H_raw - 3) ;
+      contre une étagère, la face s'arrête au bord de la zone, 1 mm de jeu.
+    """
+    n = max(1, int(stack_count))
+    dims = cabinet['dims']
+    H_raw = float(dims.get('H_raw', 1000.0))
+    t_tb = float(dims.get('t_tb_raw', 19.0))
+    y_min = float(zone['y_min']) if zone is not None else t_tb
+    y_max = float(zone['y_max']) if zone is not None else H_raw - t_tb
+    tol_mm = 1.0
+
+    if applique:
+        bottom = -1.0 if y_min <= t_tb + tol_mm else y_min + 1.0
+        top = H_raw - 3.0 if y_max >= H_raw - t_tb - tol_mm else y_max - 1.0
+    else:
+        bottom = y_min + DRAWER_STACK_GAP_MM
+        top = y_max - DRAWER_STACK_GAP_MM
+
+    face_h = (top - bottom - (n - 1) * DRAWER_STACK_GAP_MM) / n
+    face_h = max(10.0, face_h)
+    return [(bottom + k * (face_h + DRAWER_STACK_GAP_MM), face_h) for k in range(n)]
+
+
 def get_vertical_divider_tranche_holes(W_mont, div_th):
     """
     Calcule les trous sur les tranches (haut et bas) d'un montant secondaire.

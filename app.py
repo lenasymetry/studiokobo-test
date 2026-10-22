@@ -67,6 +67,7 @@ from machining_logic import (
     door_cover_span,
     column_filler_spans,
     column_filler_width,
+    compute_drawer_stack_layout,
 )
 from utils import calculate_available_space_between_horizontal_shelves
 
@@ -2216,7 +2217,7 @@ with col1:
                             stack_count = int(p.get('stack_count', 1)) if is_stack_mode else 1
                             
                             # Cas 1 : tiroir unique (comportement identique à avant)
-                            if (not is_stack_mode) or stack_count <= 1 or p.get('zone_id') is None or p['zone_id'] >= len(all_zones_2d_sel_final):
+                            if not is_stack_mode:
 
                                 # Stocker les coordonnées de la zone avec le tiroir pour référence future
                                 if p.get('zone_id') is not None:
@@ -2231,53 +2232,31 @@ with col1:
                                         }
                                 selected_cab['drawers'].append(copy.deepcopy(p))
                             else:
-                                # Cas 2 : empilement automatique de plusieurs tiroirs dans la zone
-                                zone = all_zones_2d_sel_final[p['zone_id']]
-                                dims = selected_cab['dims']
-                                t_tb_mm = float(dims.get('t_tb_raw', 19.0))
-                                H_raw = float(dims.get('H_raw', 1000.0))
-                                
-                                # Vérifier le mode (encastré ou appliqué)
-                                is_applique = bool(p.get('_applique_mode', False))
-                                
-                                if is_applique:
-                                    # Mode APPLIQUE : formule H_raw - n*2mm - 2x1mm (jeu de 1mm haut/bas)
-                                    # Les faces dépassent du meuble et recouvrent les montants + 1mm de jeu de chaque côté
-                                    n_junctions = stack_count - 1
-                                    total_face_height = H_raw - (n_junctions * 2.0) - 2.0  # -2 pour les 2x1mm de jeu
-                                    face_h = total_face_height / float(stack_count) if stack_count > 0 else 0.0
-                                    if face_h < 10.0:
-                                        face_h = 10.0
-                                    # Position : début du caisson avec 1mm de jeu
-                                    current_z_offset = -1.0  # Commence 1mm avant le bas (o[2])
+                                # Cas 2 : assemblage empilé, réparti sur la hauteur de la zone
+                                # choisie (ou de tout le caisson si aucune zone).
+                                zone = None
+                                if p.get('zone_id') is not None and p['zone_id'] < len(all_zones_2d_sel_final):
+                                    zone = all_zones_2d_sel_final[p['zone_id']]
                                 else:
-                                    # Mode ENCASTE : formule H_raw - 2*t_tb - 4mm - n*2mm
-                                    # Les tiroirs restent à l'intérieur, avec marges
-                                    n_junctions = stack_count - 1
-                                    total_face_height = H_raw - 2.0 * t_tb_mm - 4.0 - (n_junctions * 2.0)
-                                    face_h = total_face_height / float(stack_count) if stack_count > 0 else 0.0
-                                    if face_h < 10.0:
-                                        face_h = 10.0
-                                    # Position du premier tiroir : 2mm après traverse basse
-                                    current_z_offset = t_tb_mm + 2.0
-                                
-                                for k in range(stack_count):
+                                    p['zone_id'] = None
+                                layout = compute_drawer_stack_layout(
+                                    selected_cab, zone, stack_count,
+                                    applique=bool(p.get('_applique_mode', False)),
+                                )
+                                for bottom_mm, face_h in layout:
                                     d_copy = copy.deepcopy(p)
                                     d_copy.pop('stack_count', None)
                                     d_copy.pop('_stack_mode', None)
                                     # GARDER _applique_mode pour que les tiroirs validés restent en applique
-                                    
                                     d_copy['drawer_face_H_raw'] = face_h
-                                    d_copy['drawer_bottom_offset'] = current_z_offset
-                                    # Préparer offset pour próchain tiroir (hauteur + 2mm gap)
-                                    current_z_offset += face_h + 2.0
-                                    # Stocker les coordonnées de la zone pour ce tiroir
-                                    d_copy['stored_zone_coords'] = {
-                                        'x_min': zone['x_min'],
-                                        'x_max': zone['x_max'],
-                                        'y_min': zone['y_min'],
-                                        'y_max': zone['y_max']
-                                    }
+                                    d_copy['drawer_bottom_offset'] = bottom_mm
+                                    if zone is not None:
+                                        d_copy['stored_zone_coords'] = {
+                                            'x_min': zone['x_min'],
+                                            'x_max': zone['x_max'],
+                                            'y_min': zone['y_min'],
+                                            'y_max': zone['y_max']
+                                        }
                                     selected_cab['drawers'].append(d_copy)
                             st.session_state['pending_placement'] = None
                             _placement_done = True
@@ -3447,52 +3426,26 @@ with col2:
                     # - drawer : tiroir unique
                     # - drawer_stack : tiroirs empilés automatiquement (sans demander de dimensions)
                     if kind == 'drawer_stack':
-                        # Construire une preview d'empilement si une zone est sélectionnée
-                        stack_count = int(p.get('stack_count', 3))
+                        # Aperçu de l'assemblage, calculé comme à la validation : réparti
+                        # sur la hauteur de la zone choisie, ou de tout le caisson.
                         # Zones calculées SANS inclure les tiroirs
                         zones_for_preview = calculate_all_zones_2d(cab, include_all_elements=False)
                         zone_id = p.get('zone_id', None)
-                        dims = cab['dims']
-                        t_tb_mm = float(dims.get('t_tb_raw', 19.0))
-                        H_raw = float(dims.get('H_raw', 1000.0))
-                        
-                        if zone_id is not None and 0 <= int(zone_id) < len(zones_for_preview) and stack_count >= 1:
-                            z = zones_for_preview[int(zone_id)]
-                            
-                            # Vérifier le mode (encastré ou appliqué)
-                            is_applique = bool(p.get('_applique_mode', False))
-                            
-                            if is_applique:
-                                # Mode APPLIQUE : formule H_raw - n*2mm - 2x1mm (jeu de 1mm haut/bas)
-                                n_junctions = stack_count - 1
-                                total_face_height = H_raw - (n_junctions * 2.0) - 2.0
-                                face_h = total_face_height / float(stack_count) if stack_count > 0 else 0.0
-                                if face_h < 10.0:
-                                    face_h = 10.0
-                                # Position : début du caisson avec 1mm de jeu
-                                current_z_offset = -1.0
-                            else:
-                                # Mode ENCASTE : formule H_raw - 2*t_tb - 4mm - n*2mm
-                                n_junctions = stack_count - 1
-                                total_face_height = H_raw - 2.0 * t_tb_mm - 4.0 - (n_junctions * 2.0)
-                                face_h = total_face_height / float(stack_count) if stack_count > 0 else 0.0
-                                if face_h < 10.0:
-                                    face_h = 10.0
-                                current_z_offset = t_tb_mm + 2.0
-                            
-                            for k in range(stack_count):
-                                d_prev = copy.deepcopy(p)
-                                d_prev['_preview'] = True
-                                d_prev['drawer_face_H_raw'] = face_h
-                                d_prev['drawer_bottom_offset'] = current_z_offset
-                                cab_render.setdefault('drawers', []).append(d_prev)
-                                # Préparer offset pour prochain tiroir (hauteur + 2mm gap)
-                                current_z_offset += face_h + 2.0
-                        else:
-                            # Pas de zone : fallback sur un tiroir unique preview
-                            drawer_preview = copy.deepcopy(p)
-                            drawer_preview['_preview'] = True
-                            cab_render.setdefault('drawers', []).append(drawer_preview)
+                        zone = None
+                        if zone_id is not None and 0 <= int(zone_id) < len(zones_for_preview):
+                            zone = zones_for_preview[int(zone_id)]
+                        layout = compute_drawer_stack_layout(
+                            cab, zone, int(p.get('stack_count', 3)),
+                            applique=bool(p.get('_applique_mode', False)),
+                        )
+                        for bottom_mm, face_h in layout:
+                            d_prev = copy.deepcopy(p)
+                            d_prev['_preview'] = True
+                            d_prev['drawer_face_H_raw'] = face_h
+                            d_prev['drawer_bottom_offset'] = bottom_mm
+                            if zone is None:
+                                d_prev['zone_id'] = None
+                            cab_render.setdefault('drawers', []).append(d_prev)
                     else:
                         drawer_preview = copy.deepcopy(p)
                         drawer_preview['_preview'] = True
