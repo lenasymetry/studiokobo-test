@@ -21,7 +21,8 @@ from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden
                              get_door_vertical_geometry, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width,
                              cabinet_joue_dims, is_hinge_post, shelf_front_setback,
-                             HINGE_POST_DEPTH_MM)
+                             HINGE_POST_DEPTH_MM, get_plinthe_groups,
+                             format_plinthe_labels)
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +640,31 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
                       fil_x, fil_y, fil_z,
                       fileur_w, fil_th, fil_H,
                       mat="mat_body")
+
+    # ------------------------------------------------------------------ #
+    #  Plinthes (meubles à pieds)                                          #
+    # ------------------------------------------------------------------ #
+    # Mêmes plinthes que la fiche de débit (`get_plinthe_groups`) : une seule
+    # plinthe continue devant des caissons au sol accolés, longueur = largeur
+    # du meuble. Les caissons sont modélisés le bas à leur origine, le sol est
+    # donc `foot_height` plus bas. La plinthe est posée au sol, face avant
+    # alignée sur l'avant des caissons (derrière portes et façades), et ne
+    # dépasse jamais sous le caisson quand les pieds sont plus courts qu'elle.
+    floor_cabs = [c for c in scene_cabinets if isinstance(c, dict)]
+    if any(bool(c.get("has_feet", False)) for c in floor_cabs):
+        foot_h = max(float(c.get("foot_height", 0.0) or 0.0) for c in floor_cabs)
+        plinthe_groups = get_plinthe_groups(scene_cabinets)
+        if foot_h > 0.0 and plinthe_groups:
+            plinthes_node = _add_group_node(meuble_node, "node_plinthes", "Plinthes")
+            for group in plinthe_groups:
+                first = group["indices"][0]
+                px, py, pz = origins[first]
+                p_height = min(float(group["width"]), foot_h)
+                label, _ = format_plinthe_labels(group["indices"])
+                add_panel(plinthes_node, label,
+                          px, py, pz - foot_h,
+                          float(group["length"]), float(group["thickness"]), p_height,
+                          mat="mat_body")
 
     # ------------------------------------------------------------------ #
     #  Instance de scène                                                   #
