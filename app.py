@@ -569,13 +569,24 @@ def _render_exports(all_parts):
     deliverables_zip_data = None
     deliverables_zip_name = None
     if xls_data and dwg_ok and dwg_data:
-        deliverables_zip_data, deliverables_zip_name = _build_deliverables_archive(
-            st.session_state.project_name,
-            xls_data,
-            dwg_data,
-            dxf_filename=dwg_filename,
-            selected_materials=selected_materials_for_generation,
+        # L'archive n'est reconstruite que si son contenu change : sans ce
+        # cache, chaque clic sur n'importe quel bouton de la page refaisait le
+        # ZIP (lent sur Streamlit Cloud).
+        zip_key = (
+            xls_data, dwg_data, dwg_filename,
+            st.session_state.project_name, selected_materials_key,
         )
+        cached_zip = st.session_state.get('exports_zip_cache')
+        if not cached_zip or cached_zip[0] != zip_key:
+            cached_zip = (zip_key, *_build_deliverables_archive(
+                st.session_state.project_name,
+                xls_data,
+                dwg_data,
+                dxf_filename=dwg_filename,
+                selected_materials=selected_materials_for_generation,
+            ))
+            st.session_state['exports_zip_cache'] = cached_zip
+        _, deliverables_zip_data, deliverables_zip_name = cached_zip
 
     with st.container(border=True):
         if material_scope == "Toutes les matières":
@@ -1272,6 +1283,14 @@ KOBO_ORANGE_HOVER = "#D33C1F"
 st.markdown(
     f"""
     <style>
+    /* Pendant un calcul (génération des livrables surtout, lente sur Streamlit
+       Cloud), Streamlit estompe tout ce qui n'a pas encore été redessiné : la
+       page devenait blanchâtre. Le spinner et l'indicateur « Running » en haut
+       à droite suffisent à signaler le calcul, la page reste donc lisible. */
+    [data-stale="true"] {{
+        opacity: 1 !important;
+        transition: none !important;
+    }}
     /* Boutons principaux et validations de formulaire.
        Deux jeux de sélecteurs : Streamlit a renommé l'attribut des boutons
        entre les versions (`kind="primary"` avant, `data-testid` ensuite).

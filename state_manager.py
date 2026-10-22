@@ -1,5 +1,14 @@
 # Contenu de state_manager.py
 # Gestion des callbacks et de l'état de session
+#
+# RÈGLE pour les callbacks (`on_click` / `on_change`) : ne jamais y appeler
+# `st.rerun()` ni `st.warning/error/success/info`. Streamlit rend tout élément
+# créé dans un callback TOUT EN HAUT de la page (et `st.rerun()` en crée un,
+# vide, en plus de relancer le script une seconde fois). Ce décalage fait
+# croire au navigateur que la page entière est nouvelle : les onglets
+# reviennent sur « Etape 1 » et la page s'affiche en double, grisée, pendant
+# le calcul. Pour un message, utiliser `st.toast(...)` (notification hors mise
+# en page). Un rerun est inutile : le script repart déjà après le callback.
 
 import streamlit as st
 import openpyxl
@@ -182,10 +191,9 @@ def load_save_state():
                     else:
                         st.session_state['selected_cabinet_index'] = None
                         st.session_state['base_cabinet_index'] = 0
-                    st.success("Projet chargé.")
-                    st.rerun()
+                    st.toast("Projet chargé.", icon="✅")
         except Exception as e:
-            st.error(f"Erreur chargement : {e}")
+            st.toast(f"Erreur chargement : {e}", icon="❌")
 
 
 def _to_float(value, default=0.0):
@@ -1541,7 +1549,7 @@ def load_web_config_json_state():
         raw = uploaded_file.getvalue()
         payload = json.loads(raw.decode('utf-8-sig'))
         if not isinstance(payload, dict):
-            st.error("Le fichier JSON doit contenir un objet racine.")
+            st.toast("Le fichier JSON doit contenir un objet racine.", icon="❌")
             return
 
         meuble = payload.get('meuble', {}) if isinstance(payload.get('meuble', {}), dict) else {}
@@ -1559,10 +1567,9 @@ def load_web_config_json_state():
             or meuble.get('mat')
             or st.session_state.get('panneau_decor', 'BLANC')
         )
-        st.success(f"Projet JSON importé : {len(scene)} caisson(s) détecté(s) et chargés dans la scène.")
-        st.rerun()
+        st.toast(f"Projet JSON importé : {len(scene)} caisson(s) détecté(s) et chargés dans la scène.", icon="✅")
     except Exception as e:
-        st.error(f"Erreur import JSON configurateur : {e}")
+        st.toast(f"Erreur import JSON configurateur : {e}", icon="❌")
 
 # Callbacks
 def update_selected_cabinet_dim(key):
@@ -1650,7 +1657,7 @@ def add_drawer_callback():
         if 'drawers' not in cabinet: cabinet['drawers'] = []
         # Pose en 2 temps: on crée un "pending" au lieu d'ajouter directement
         if st.session_state.get('pending_placement') is not None:
-            st.warning("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.")
+            st.toast("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.", icon="⚠️")
             return
         st.session_state['pending_placement'] = {
             'kind': 'drawer',
@@ -1664,7 +1671,7 @@ def add_drawers_stack_callback():
     if cabinet:
         if 'drawers' not in cabinet: cabinet['drawers'] = []
         if st.session_state.get('pending_placement') is not None:
-            st.warning("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.")
+            st.toast("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.", icon="⚠️")
             return
         p = get_default_drawer_props()
         # Mode empilement : dimensions (hauteur/offset) seront calculées automatiquement à partir de la zone
@@ -1698,7 +1705,6 @@ def delete_drawer_callback(drawer_index):
     if cabinet:
         if 'drawers' in cabinet and drawer_index < len(cabinet['drawers']):
             cabinet['drawers'].pop(drawer_index)
-            st.rerun()
 
 def update_drawer_material(drawer_index):
     """Met à jour la matière d'un tiroir."""
@@ -1714,7 +1720,7 @@ def add_shelf_callback():
         if 'shelves' not in cabinet: cabinet['shelves'] = []
         # Pose en 2 temps: on crée un "pending" au lieu d'ajouter directement
         if st.session_state.get('pending_placement') is not None:
-            st.warning("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.")
+            st.toast("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.", icon="⚠️")
             return
         st.session_state['pending_placement'] = {
             'kind': 'shelf',
@@ -1730,7 +1736,7 @@ def add_fixed_shelves_stack_callback():
         if 'shelves' not in cabinet:
             cabinet['shelves'] = []
         if st.session_state.get('pending_placement') is not None:
-            st.warning("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.")
+            st.toast("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.", icon="⚠️")
             return
 
         p = get_default_shelf_props()
@@ -1762,7 +1768,6 @@ def delete_shelf_callback(shelf_index):
     if cabinet:
         if 'shelves' in cabinet and shelf_index < len(cabinet['shelves']):
             cabinet['shelves'].pop(shelf_index)
-            st.rerun()
 
 def update_selected_cabinet_material(key):
     cabinet = get_selected_cabinet()
@@ -1876,7 +1881,7 @@ def add_cabinet(origin_type='central'):
     else: 
         base_index = st.session_state.get('base_cabinet_index', 0)
         if base_index is None or base_index >= len(st.session_state['scene_cabinets']):
-            st.error("Aucun caisson de base sélectionné.")
+            st.toast("Aucun caisson de base sélectionné.", icon="❌")
             return
         base_caisson = st.session_state['scene_cabinets'][base_index]
         new_cabinet = {
@@ -1939,7 +1944,7 @@ def add_vertical_divider_callback():
             cabinet['vertical_dividers'] = []
         # Pose en 2 temps: on crée un "pending" au lieu d'ajouter directement
         if st.session_state.get('pending_placement') is not None:
-            st.warning("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.")
+            st.toast("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.", icon="⚠️")
             return
         new_divider = get_default_vertical_divider_props()
         # S'assurer que la position est valide (entre les montants)
@@ -1980,7 +1985,7 @@ def add_vertical_divider_double_callback():
             cabinet['vertical_dividers'] = []
         # Pose en 2 temps : on crée un pending spécifique
         if st.session_state.get('pending_placement') is not None:
-            st.warning("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.")
+            st.toast("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.", icon="⚠️")
             return
         new_divider = get_default_vertical_divider_props()
         dims = cabinet['dims']
@@ -2011,7 +2016,6 @@ def delete_vertical_divider_callback(divider_index):
     if cabinet:
         if 'vertical_dividers' in cabinet and divider_index < len(cabinet['vertical_dividers']):
             cabinet['vertical_dividers'].pop(divider_index)
-            st.rerun()
 
 def update_vertical_divider_material(divider_index):
     cabinet = get_selected_cabinet()
@@ -2028,7 +2032,7 @@ def add_vertical_shelf_callback():
             cabinet['vertical_shelves'] = []
         # Pose en 2 temps: on crée un "pending" au lieu d'ajouter directement
         if st.session_state.get('pending_placement') is not None:
-            st.warning("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.")
+            st.toast("Une pose est déjà en cours. Validez ou annulez avant d'ajouter un nouvel élément.", icon="⚠️")
             return
         new_shelf = get_default_vertical_shelf_props()
         # S'assurer que la position est valide
@@ -2068,7 +2072,6 @@ def delete_vertical_shelf_callback(shelf_index):
     if cabinet:
         if 'vertical_shelves' in cabinet and shelf_index < len(cabinet['vertical_shelves']):
             cabinet['vertical_shelves'].pop(shelf_index)
-            st.rerun()
 
 def update_vertical_shelf_material(shelf_index):
     cabinet = get_selected_cabinet()
