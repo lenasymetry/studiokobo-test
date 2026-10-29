@@ -368,16 +368,20 @@ class _Sheet:
         return out
 
     def grooves(self) -> List[dict]:
-        """Rainures débouchantes sur toute la longueur, parallèles au bord avant
-        (y = 0) : [{'y0', 'y1', 'depth', 'label'}] en repère pièce. Elles
-        ressortent sur les tranches gauche et droite."""
+        """Rainures débouchantes sur toute la longueur, parallèles aux grands
+        bords : [{'y0', 'y1', 'depth', 'label', 'back'}] en repère pièce.
+        L'offset est mesuré depuis le bord avant (y = 0) ou, avec
+        from_edge='arriere', depuis le bord arrière (y = W). Elles ressortent
+        sur les tranches gauche et droite."""
         out = []
         for g in self.plan.get("grooves") or []:
             off, w, dp = _num(g.get("offset")), _num(g.get("width")), _num(g.get("depth"))
             if off is None or not w or not dp or off < 0 or off + w > self.W:
                 continue
-            out.append({"y0": off, "y1": off + w, "depth": min(dp, self.T),
-                        "label": str(g.get("label") or "Rainure")})
+            back = g.get("from_edge") == "arriere"
+            y0 = self.W - off - w if back else off
+            out.append({"y0": y0, "y1": y0 + w, "depth": min(dp, self.T),
+                        "label": str(g.get("label") or "Rainure"), "back": back})
         return out
 
     def edge_grooves(self, edge: str) -> List[dict]:
@@ -743,8 +747,13 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         for y in (g["y0"], g["y1"]):
             a, b = sheet.tr(0, y), sheet.tr(sheet.L, y)
             D.line(a[0], a[1], b[0], b[1], layer="USINAGE")
-        tx, ty = sheet.tr(sheet.L / 2.0, g["y1"] + 3 * s)
-        t = D.text(_groove_label(g), tx, ty, align=TextEntityAlignment.BOTTOM_CENTER)
+        # Libellé côté intérieur de la pièce (loin du bord de référence).
+        if g["back"]:
+            tx, ty = sheet.tr(sheet.L / 2.0, g["y0"] - 3 * s)
+            t = D.text(_groove_label(g), tx, ty, align=TextEntityAlignment.TOP_CENTER)
+        else:
+            tx, ty = sheet.tr(sheet.L / 2.0, g["y1"] + 3 * s)
+            t = D.text(_groove_label(g), tx, ty, align=TextEntityAlignment.BOTTOM_CENTER)
         if sheet.rotated:
             t.dxf.rotation = 90
 

@@ -2560,7 +2560,7 @@ with col1:
                             joue['led_strip'] = st.checkbox(
                                 f"Bandeau LED (rainure {LED_GROOVE_WIDTH_MM:.0f} mm × "
                                 f"prof. {LED_GROOVE_DEPTH_MM:.0f} mm à "
-                                f"{LED_GROOVE_OFFSET_MM:.0f} mm du bord avant)",
+                                f"{LED_GROOVE_OFFSET_MM:.0f} mm du bord arrière)",
                                 value=bool(joue.get('led_strip', False)),
                                 key=f"joue_led_strip_{joue_key}_{idx}",
                             )
