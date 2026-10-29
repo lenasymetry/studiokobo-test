@@ -940,12 +940,14 @@ def calculate_all_project_parts():
             joue = joues.get(joue_key, get_default_joue_props())
             if not bool(joue.get('enabled', False)):
                 continue
-            chants = joue_chants.get(joue_key, {
+            chants = dict(joue_chants.get(joue_key, {
                 'Chant Avant': False,
                 'Chant Arrière': False,
                 'Chant Gauche': False,
                 'Chant Droit': False,
-            })
+            }))
+            # Chants modifiés dans l'onglet Feuille de Débit.
+            chants.update({k: bool(v) for k, v in (joue.get('chants') or {}).items() if k in chants})
             # Joue commune (caissons superposés) et modèle cache-pieds pris en compte.
             joue_geo = cabinet_joue_dims(
                 cabinet, joue_key, cabinet_has_feet,
@@ -3387,6 +3389,47 @@ with col1:
                     
                     # Écrire les modifications dans l'état du caisson
                     st.session_state['scene_cabinets'][idx]['debit_data'] = edited_df.to_dict(orient="records")
+
+                    # Joues du caisson : cotes automatiques, chants modifiables
+                    # (repris dans le débit global et la feuille d'usinage DXF).
+                    _joue_rows, _joue_keys = [], []
+                    for _jk, _jl in (('gauche', 'Joue gauche'), ('droite', 'Joue droite'),
+                                     ('dessus', 'Joue dessus'), ('dessous', 'Joue dessous')):
+                        _jp = (selected_cab.get('joues', {}) or {}).get(_jk, {}) or {}
+                        if not _jp.get('enabled'):
+                            continue
+                        _jg = cabinet_joue_dims(
+                            selected_cab, _jk, _feet_on,
+                            st.session_state.get('foot_height', 0.0), fileur_w,
+                        )
+                        if _jg is None:
+                            continue  # habillée par la joue commune d'un autre caisson
+                        _jc = {'Chant Avant': True, 'Chant Arrière': False, 'Chant Gauche': True, 'Chant Droit': True}
+                        _jc.update({k: bool(v) for k, v in (_jp.get('chants') or {}).items() if k in _jc})
+                        _joue_rows.append({
+                            "Référence Pièce": _jl,
+                            "Longueur (mm)": _jg['length'],
+                            "Largeur (mm)": _jg['width'],
+                            "Epaisseur": _jg['thickness'],
+                            **_jc,
+                        })
+                        _joue_keys.append(_jk)
+                    if _joue_rows:
+                        st.markdown("##### Joues")
+                        st.caption(
+                            "Cotes automatiques (onglet Joues). Chants : Avant = grand côté "
+                            "en façade, Arrière = grand côté contre le mur, Gauche / Droit = "
+                            "petits côtés (bas / haut pour les joues latérales)."
+                        )
+                        _joues_df = st.data_editor(
+                            pd.DataFrame(_joue_rows),
+                            key=f"editor_joues_{idx}",
+                            hide_index=True,
+                            disabled=["Référence Pièce", "Longueur (mm)", "Largeur (mm)", "Epaisseur"],
+                            column_config={c: st.column_config.CheckboxColumn(c, default=False) for c in chant_cols},
+                        )
+                        for _jk, (_, _row) in zip(_joue_keys, _joues_df.iterrows()):
+                            selected_cab['joues'][_jk]['chants'] = {c: bool(_row[c]) for c in chant_cols}
 
 _sync_door_spans()
 all_calculated_parts, shelf_dims_cache = get_cached_project_parts()
