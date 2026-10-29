@@ -164,15 +164,29 @@ def _face_rows(sheet, s):
     return nx, ny
 
 
-def _tranche_rows(sheet, side_info, side, s):
-    holes = side_info["holes"]
-    if not holes:
-        return 0
-    horizontal = side in ("bottom", "top")
+def _groove_label(g) -> str:
+    return f"{g['label']} {_fmt(g['y1'] - g['y0'])} x prof. {_fmt(g['depth'])}"
+
+
+def _tranche_positions(sheet, edge, holes, horizontal):
+    """Positions cotées le long d'une tranche : perçages + bords des rainures."""
     pos = []
     for h in holes:
-        px, py = sheet.edge_point(side_info["edge"], h["_t"])
+        px, py = sheet.edge_point(edge, h["_t"])
         pos.append(px if horizontal else py)
+    for g in sheet.edge_grooves(edge):
+        for t in (g["y0"], g["y1"]):
+            px, py = sheet.edge_point(edge, t)
+            pos.append(px if horizontal else py)
+    return pos
+
+
+def _tranche_rows(sheet, side_info, side, s):
+    holes = side_info["holes"]
+    if not holes and not sheet.edge_grooves(side_info["edge"]):
+        return 0
+    horizontal = side in ("bottom", "top")
+    pos = _tranche_positions(sheet, side_info["edge"], holes, horizontal)
     _, n = _stagger(pos, 0.0, sheet.Wd if horizontal else sheet.Hd, s)
     return n
 
@@ -353,6 +367,22 @@ class _Sheet:
                 out[e].append({**h, "_t": t})
         return out
 
+    def grooves(self) -> List[dict]:
+        """Rainures débouchantes sur toute la longueur, parallèles au bord avant
+        (y = 0) : [{'y0', 'y1', 'depth', 'label'}] en repère pièce. Elles
+        ressortent sur les tranches gauche et droite."""
+        out = []
+        for g in self.plan.get("grooves") or []:
+            off, w, dp = _num(g.get("offset")), _num(g.get("width")), _num(g.get("depth"))
+            if off is None or not w or not dp or off < 0 or off + w > self.W:
+                continue
+            out.append({"y0": off, "y1": off + w, "depth": min(dp, self.T),
+                        "label": str(g.get("label") or "Rainure")})
+        return out
+
+    def edge_grooves(self, edge: str) -> List[dict]:
+        return self.grooves() if edge in ("gauche", "droit") else []
+
     def face_holes(self) -> List[dict]:
         out = []
         for h in self.plan.get("face_holes") or []:
@@ -398,14 +428,17 @@ def _extents(sheet: _Sheet, s: float):
     td, sides, gap = _side_layout(sheet, s)
     out = {}
     for k, v in sides.items():
-        if not v["holes"]:
+        ngrooves = len(sheet.edge_grooves(v["edge"]))
+        if not v["holes"] and not ngrooves:
             out[k] = 0.0
             continue
         n = _tranche_rows(sheet, v, k, s)
-        ngroups = len({h.get("diam_str", "") for h in v["holes"]})
+        ngroups = len({h.get("diam_str", "") for h in v["holes"]}) + ngrooves
         chain = DIM_ROW + (n - 1) * ROW_STEP
         if k in ("left", "right"):
-            out[k] = (chain + DIM_STEP + CALLOUT_TEXT_W) * s
+            text_w = max([CALLOUT_TEXT_W] + [(len(_groove_label(g)) + 2) * TXT_H * 0.75
+                                             for g in sheet.edge_grooves(v["edge"])])
+            out[k] = (chain + DIM_STEP + text_w) * s
         else:
             out[k] = (chain + DIM_STEP * (1 + ngroups)) * s
     top_callouts = (CALLOUT_ROW + 4.0) * s if sheet.face_holes() else 0.0
@@ -600,11 +633,10 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
     # Signature (axe, positions) des perçages de chaque tranche.
     side_sig = {}
     for sd, (sx0, sy0, sx1, sy1) in tranche_rects.items():
-        e = sides[sd]["edge"]
-        pts = [sheet.edge_point(e, h["_t"]) for h in sides[sd]["holes"]]
+        hz = sd in ("bottom", "top")
+        pts = _tranche_positions(sheet, sides[sd]["edge"], sides[sd]["holes"], hz)
         if pts:
-            hz = sd in ("bottom", "top")
-            side_sig[sd] = (hz, tuple(round(p, 1) for p in _unique_sorted([pt[0] if hz else pt[1] for pt in pts])))
+            side_sig[sd] = (hz, tuple(round(p, 1) for p in _unique_sorted(pts)))
     for side, (x0, y0, x1, y1) in tranche_rects.items():
         info = sides[side]
         edge = info["edge"]
@@ -622,6 +654,26 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
             d = _hole_diameter(h.get("diam_str"), 8.0)
             # Trou vu de bout dans l'épaisseur de la tranche : cercle limité à la tranche.
             D.circle(pos if horizontal else cx_mid, cy_mid if horizontal else pos, min(d, td * 0.8))
+        # Rainures vues de bout : encoche ouverte côté face (tranche dépliée,
+        # son bord côté face est celui qui touche la face), profondeur à
+        # l'échelle de la tranche dessinée.
+        grooves = sheet.edge_grooves(edge)
+        face_c = {"bottom": y1, "top": y0, "left": x1, "right": x0}[side]
+        inward = {"bottom": -1.0, "top": 1.0, "left": -1.0, "right": 1.0}[side]
+        for g in grooves:
+            a, b = (sheet.edge_point(edge, t) for t in (g["y0"], g["y1"]))
+            a, b = (a[0], b[0]) if horizontal else (a[1], b[1])
+            bot = face_c + inward * g["depth"] / sheet.T * td
+            pts = ([(a, face_c), (a, bot), (b, bot), (b, face_c)] if horizontal
+                   else [(face_c, a), (bot, a), (bot, b), (face_c, b)])
+            msp.add_lwpolyline([D.P(*p) for p in pts], dxfattribs={"layer": "USINAGE"})
+            positions.extend([a, b])
+            # Profondeur, juste à côté de l'encoche (les bouts de tranche
+            # portent déjà les cotes d'épaisseur et d'axe des perçages).
+            if horizontal:
+                D.dim((b, face_c), (b, bot), "y", max(a, b) + 5 * s, text=_fmt(g["depth"]))
+            else:
+                D.dim((face_c, b), (bot, b), "x", max(a, b) + 5 * s, text=_fmt(g["depth"]))
 
         # Épaisseur réelle de la tranche (dessin agrandi si trop fine).
         if side == "bottom":
@@ -642,12 +694,14 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         # la cote d'épaisseur, pour ne pas les superposer.
         if side == "bottom":
             nr = D.chain(positions, "x", y0, y0 - DIM_ROW * s, 0, Wd, -1)
-            D.dim((Wd, cy_mid), (Wd, y1), "y", Wd + 6 * s, text=_fmt(sheet.T / 2.0))
+            if info["holes"]:
+                D.dim((Wd, cy_mid), (Wd, y1), "y", Wd + 6 * s, text=_fmt(sheet.T / 2.0))
         elif side == "top":
             nr = D.chain(positions, "x", y1, y1 + DIM_ROW * s, 0, Wd, +1)
         elif side == "left":
             nr = D.chain(positions, "y", x0, x0 - DIM_ROW * s, 0, Hd, -1)
-            D.dim((x0, 0), (cx_mid, 0), "x", -6 * s, text=_fmt(sheet.T / 2.0))
+            if info["holes"]:
+                D.dim((x0, 0), (cx_mid, 0), "x", -6 * s, text=_fmt(sheet.T / 2.0))
         else:
             nr = D.chain(positions, "y", x1, x1 + DIM_ROW * s, 0, Hd, +1)
         extra = (nr - 1) * ROW_STEP
@@ -667,6 +721,32 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
             else:
                 D.callout((cx_mid, py), (x1 + (DIM_ROW + extra + DIM_STEP) * s, py + 4 * s + k * DIM_STEP * s),
                           _hole_label(ds), len(hs) * n_same)
+        # Repère de la rainure, à la suite de ceux des perçages.
+        for k, g in enumerate(grooves, start=len(groups)):
+            a, b = (sheet.edge_point(edge, t) for t in (g["y0"], g["y1"]))
+            m = ((a[0] + b[0]) / 2.0) if horizontal else ((a[1] + b[1]) / 2.0)
+            dm = face_c + inward * g["depth"] / sheet.T * td / 2.0
+            label = _groove_label(g)
+            if side == "bottom":
+                D.callout((m, dm), (m + 4 * s, y0 - (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), label, 1)
+            elif side == "top":
+                D.callout((m, dm), (m + 4 * s, y1 + (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), label, 1)
+            elif side == "left":
+                D.callout((dm, m), (x0 - (DIM_ROW + extra + DIM_STEP) * s, m + 4 * s + k * DIM_STEP * s),
+                          label, 1, to_left=True)
+            else:
+                D.callout((dm, m), (x1 + (DIM_ROW + extra + DIM_STEP) * s, m + 4 * s + k * DIM_STEP * s),
+                          label, 1)
+
+    # --- Rainures en face (débouchantes, toute la longueur) ----------------------
+    for g in sheet.grooves():
+        for y in (g["y0"], g["y1"]):
+            a, b = sheet.tr(0, y), sheet.tr(sheet.L, y)
+            D.line(a[0], a[1], b[0], b[1], layer="USINAGE")
+        tx, ty = sheet.tr(sheet.L / 2.0, g["y1"] + 3 * s)
+        t = D.text(_groove_label(g), tx, ty, align=TextEntityAlignment.BOTTOM_CENTER)
+        if sheet.rotated:
+            t.dxf.rotation = 90
 
     # --- Perçages en face --------------------------------------------------------
     face = sheet.face_holes()

@@ -1323,6 +1323,26 @@ JOUE_SIDE_KEYS = ('gauche', 'droite')
 JOUE_DOOR_FRONT_EXTENSION = 20.0
 JOUE_TOP_BOTTOM_KEYS = ('dessus', 'dessous')
 
+# Bandeau LED sous la joue de dessous : rainure débouchante sur toute la
+# longueur, parallèle au bord avant (bord avant -> bord de la rainure).
+LED_GROOVE_OFFSET_MM = 50.0
+LED_GROOVE_WIDTH_MM = 4.0
+LED_GROOVE_DEPTH_MM = 8.0
+
+
+def joue_led_grooves(cabinet, joue_key):
+    """Rainure(s) de bandeau LED d'une joue, repère de sa feuille d'usinage
+    (offset mesuré depuis le bord avant, y = 0). Seule la joue de dessous en a."""
+    joue = ((cabinet or {}).get('joues', {}) or {}).get(joue_key, {}) or {}
+    if joue_key != 'dessous' or not (joue.get('enabled') and joue.get('led_strip')):
+        return []
+    return [{
+        'offset': LED_GROOVE_OFFSET_MM,
+        'width': LED_GROOVE_WIDTH_MM,
+        'depth': LED_GROOVE_DEPTH_MM,
+        'label': 'Rainure bandeau LED',
+    }]
+
 
 def joue_drawer_advance_available(cabinet, joue_key):
     """Une joue dessus/dessous peut-elle avancer devant les façades de tiroir ?

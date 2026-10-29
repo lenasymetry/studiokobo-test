@@ -50,6 +50,10 @@ from machining_logic import (
     shelf_front_setback,
     HINGE_POST_DEPTH_MM,
     joue_assembly_holes,
+    joue_led_grooves,
+    LED_GROOVE_OFFSET_MM,
+    LED_GROOVE_WIDTH_MM,
+    LED_GROOVE_DEPTH_MM,
     apply_face_hole_depths,
     get_stacked_child_index,
     get_cabinet_door_height_raw,
@@ -232,6 +236,13 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
                         bool(st.session_state.get('has_feet', False)),
                         st.session_state.get('foot_height', 0.0),
                     ))
+            # Joue de dessous : rainure du bandeau LED.
+            if "joue dessous" in _ref_l:
+                try:
+                    _cab_j = st.session_state['scene_cabinets'][int(first_c[1:])]
+                except (ValueError, IndexError):
+                    _cab_j = None
+                extra_plan["grooves"] = joue_led_grooves(_cab_j, 'dessous')
             if extra_plan["L"] <= 0.0 or extra_plan["W"] <= 0.0:
                 continue
             insert_at = len(sheet_plans)
@@ -962,9 +973,9 @@ def calculate_all_project_parts():
                 "Chant Arrière": chants['Chant Arrière'],
                 "Chant Gauche": chants['Chant Gauche'],
                 "Chant Droit": chants['Chant Droit'],
-                "Usinage": "",
+                "Usinage": "Rainure LED" if joue_led_grooves(cabinet, joue_key) else "",
             })
-        
+
         # 2. Porte(s) importee(s) explicites (JSON web)
         imported_doors = cabinet.get('imported_doors', []) or []
         if imported_doors:
@@ -2545,6 +2556,14 @@ with col1:
                             else:
                                 joue['span_right'] = False
                             apply_joue_spans(_scene_j)
+                        if enabled and joue_key == 'dessous':
+                            joue['led_strip'] = st.checkbox(
+                                f"Bandeau LED (rainure {LED_GROOVE_WIDTH_MM:.0f} mm × "
+                                f"prof. {LED_GROOVE_DEPTH_MM:.0f} mm à "
+                                f"{LED_GROOVE_OFFSET_MM:.0f} mm du bord avant)",
+                                value=bool(joue.get('led_strip', False)),
+                                key=f"joue_led_strip_{joue_key}_{idx}",
+                            )
                         if enabled and joue_drawer_advance_available(selected_cab, joue_key):
                             joue['drawer_front_advance'] = st.checkbox(
                                 "Avancer de 20 mm devant le tiroir en applique (façade 19 mm + 1 mm de jeu)",
