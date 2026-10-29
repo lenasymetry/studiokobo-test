@@ -1306,6 +1306,8 @@ def _merged_debit_parts(saves):
             row = dict(part)
             row["Référence Pièce"] = f"{meuble_name} · {part.get('Référence Pièce', '')}"
             row["Caisson"] = f"{meuble_name} {part.get('Caisson', '')}".strip()
+            lettre = str(part.get("Lettre", "") or "")
+            row["Lettre affichée"] = f"{lettre.split('-')[-1]} - {meuble_name}"
             merged.append(row)
     return merged
 

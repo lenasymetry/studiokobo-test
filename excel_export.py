@@ -59,6 +59,9 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         
         ws.column_dimensions['A'].width = 4 
         ws.column_dimensions['B'].width = 5 
+        if "Lettre affichée" in df_mat.columns:
+            longest = df_mat["Lettre affichée"].astype(str).str.len().max()
+            ws.column_dimensions['B'].width = max(5, int(longest) + 2)
         ws.column_dimensions['C'].width = 40 
         ws.column_dimensions['D'].width = 6 
         ws.column_dimensions['E'].width = 12 
@@ -293,6 +296,10 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         for idx, row in df_mat.iterrows():
             raw_lettre = row.get("Lettre", "")
             lettre_display = raw_lettre.split('-')[-1] if '-' in str(raw_lettre) else raw_lettre
+            # Feuille commune à plusieurs meubles : repère déjà composé ("A - 1B").
+            forced_lettre = row.get("Lettre affichée")
+            if isinstance(forced_lettre, str) and forced_lettre:
+                lettre_display = forced_lettre
 
             ws.cell(row=current_row, column=1, value=line_number).font = font_bold_std 
             ws.cell(row=current_row, column=2, value=lettre_display).font = font_std
