@@ -3334,6 +3334,38 @@ with col1:
                                 df.at[row_idx, "Epaisseur"] = dims_tuple[2]
                                 break
                     
+                    # Joues du caisson : lignes du tableau, cotes imposées (onglet
+                    # Joues), chants modifiables. Elles ne sont pas stockées dans
+                    # debit_data : leurs chants vont dans joues[cote]['chants'].
+                    joue_row_keys = {}
+                    _joue_rows = []
+                    for _jk, _jl in (('gauche', 'Joue gauche'), ('droite', 'Joue droite'),
+                                     ('dessus', 'Joue dessus'), ('dessous', 'Joue dessous')):
+                        _jp = (selected_cab.get('joues', {}) or {}).get(_jk, {}) or {}
+                        if not _jp.get('enabled'):
+                            continue
+                        _jg = cabinet_joue_dims(
+                            selected_cab, _jk, _feet_on,
+                            st.session_state.get('foot_height', 0.0), fileur_w,
+                        )
+                        if _jg is None:
+                            continue  # habillée par la joue commune d'un autre caisson
+                        _jc = {'Chant Avant': True, 'Chant Arrière': False, 'Chant Gauche': True, 'Chant Droit': True}
+                        _jc.update({k: bool(v) for k, v in (_jp.get('chants') or {}).items() if k in _jc})
+                        _jref = f"{_jl} (C{idx})"
+                        joue_row_keys[_jref] = _jk
+                        _joue_rows.append({
+                            "Référence Pièce": _jref,
+                            "Longueur (mm)": _jg['length'],
+                            "Largeur (mm)": _jg['width'],
+                            "Epaisseur": _jg['thickness'],
+                            "Qté": 1,
+                            "Usinage": "Rainure LED" if joue_led_grooves(selected_cab, _jk) else "",
+                            **_jc,
+                        })
+                    if _joue_rows:
+                        df = pd.concat([df, pd.DataFrame(_joue_rows)], ignore_index=True)
+
                     # S'assurer que les colonnes de chant existent et sont bien booléennes
                     for col in chant_cols:
                         if col not in df.columns:
@@ -3358,6 +3390,16 @@ with col1:
                         },
                         num_rows="dynamic"
                     )
+
+                    # Joues : seuls les chants sont repris, puis les lignes sont retirées.
+                    if joue_row_keys and "Référence Pièce" in edited_df.columns:
+                        _jmask = edited_df["Référence Pièce"].astype(str).isin(joue_row_keys)
+                        for _, _row in edited_df[_jmask].iterrows():
+                            _jk = joue_row_keys[str(_row["Référence Pièce"])]
+                            selected_cab['joues'][_jk]['chants'] = {
+                                c: bool(_row[c]) if pd.notna(_row[c]) else False for c in chant_cols
+                            }
+                        edited_df = edited_df[~_jmask].copy()
 
                     if "Référence Pièce" in edited_df.columns and "Chant Avant" in edited_df.columns:
                         plinthe_mask = edited_df["Référence Pièce"].astype(str).str.lower().str.contains("plinthe", na=False)
@@ -3389,47 +3431,6 @@ with col1:
                     
                     # Écrire les modifications dans l'état du caisson
                     st.session_state['scene_cabinets'][idx]['debit_data'] = edited_df.to_dict(orient="records")
-
-                    # Joues du caisson : cotes automatiques, chants modifiables
-                    # (repris dans le débit global et la feuille d'usinage DXF).
-                    _joue_rows, _joue_keys = [], []
-                    for _jk, _jl in (('gauche', 'Joue gauche'), ('droite', 'Joue droite'),
-                                     ('dessus', 'Joue dessus'), ('dessous', 'Joue dessous')):
-                        _jp = (selected_cab.get('joues', {}) or {}).get(_jk, {}) or {}
-                        if not _jp.get('enabled'):
-                            continue
-                        _jg = cabinet_joue_dims(
-                            selected_cab, _jk, _feet_on,
-                            st.session_state.get('foot_height', 0.0), fileur_w,
-                        )
-                        if _jg is None:
-                            continue  # habillée par la joue commune d'un autre caisson
-                        _jc = {'Chant Avant': True, 'Chant Arrière': False, 'Chant Gauche': True, 'Chant Droit': True}
-                        _jc.update({k: bool(v) for k, v in (_jp.get('chants') or {}).items() if k in _jc})
-                        _joue_rows.append({
-                            "Référence Pièce": _jl,
-                            "Longueur (mm)": _jg['length'],
-                            "Largeur (mm)": _jg['width'],
-                            "Epaisseur": _jg['thickness'],
-                            **_jc,
-                        })
-                        _joue_keys.append(_jk)
-                    if _joue_rows:
-                        st.markdown("##### Joues")
-                        st.caption(
-                            "Cotes automatiques (onglet Joues). Chants : Avant = grand côté "
-                            "en façade, Arrière = grand côté contre le mur, Gauche / Droit = "
-                            "petits côtés (bas / haut pour les joues latérales)."
-                        )
-                        _joues_df = st.data_editor(
-                            pd.DataFrame(_joue_rows),
-                            key=f"editor_joues_{idx}",
-                            hide_index=True,
-                            disabled=["Référence Pièce", "Longueur (mm)", "Largeur (mm)", "Epaisseur"],
-                            column_config={c: st.column_config.CheckboxColumn(c, default=False) for c in chant_cols},
-                        )
-                        for _jk, (_, _row) in zip(_joue_keys, _joues_df.iterrows()):
-                            selected_cab['joues'][_jk]['chants'] = {c: bool(_row[c]) for c in chant_cols}
 
 _sync_door_spans()
 all_calculated_parts, shelf_dims_cache = get_cached_project_parts()
