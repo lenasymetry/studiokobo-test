@@ -100,10 +100,14 @@ def _sync_door_spans():
     débit et de la 3D, pour prendre en compte les widgets qui écrivent
     directement dans `door_props` pendant le rendu de la page).
     """
-    apply_door_spans(st.session_state.get('scene_cabinets', []) or [])
-    apply_joue_spans(st.session_state.get('scene_cabinets', []) or [])
-    migrate_upright_wall_chants(st.session_state.get('scene_cabinets', []) or [])
-    migrate_traverse_wall_chants(st.session_state.get('scene_cabinets', []) or [])
+    _apply_scene_spans(st.session_state.get('scene_cabinets', []) or [])
+
+
+def _apply_scene_spans(scene):
+    apply_door_spans(scene)
+    apply_joue_spans(scene)
+    migrate_upright_wall_chants(scene)
+    migrate_traverse_wall_chants(scene)
 
 
 _sync_door_spans()
@@ -781,16 +785,25 @@ def has_holes_for_piece(ref_key, cabinet, piece_data=None):
     # Par défaut, pas de trous
     return False
 
-def calculate_all_project_parts():
-    _sync_door_spans()
+def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
+    """Feuille de débit du projet en cours, ou d'une scène donnée (sauvegarde)."""
+    if scene is None:
+        _sync_door_spans()
+        scene = st.session_state['scene_cabinets']
+    else:
+        _apply_scene_spans(scene)
+    if has_feet is None:
+        has_feet = bool(st.session_state.get('has_feet', False))
+    if foot_height is None:
+        foot_height = st.session_state.get('foot_height', 0.0)
     all_parts = []
     lettre_code = 65 
     shelf_dims_cache = {} 
 
-    for i, cabinet in enumerate(st.session_state['scene_cabinets']):
+    for i, cabinet in enumerate(scene):
         dims = cabinet['dims']
         debit_data = cabinet['debit_data']
-        cabinet_has_feet = bool(st.session_state.get('has_feet', False) or cabinet.get('has_feet', False))
+        cabinet_has_feet = bool(has_feet or cabinet.get('has_feet', False))
         fileur_w = float(cabinet.get('door_props', {}).get('fileur_width', 0) or 0.0)
         L_eff = max(0.0, float(dims['L_raw']) - fileur_w)
 
@@ -893,7 +906,7 @@ def calculate_all_project_parts():
         # pas, et des caissons accolés se partagent une plinthe continue,
         # rattachée au premier d'entre eux (voir `get_plinthe_groups`).
         plinthe_group = (
-            get_plinthe_for_cabinet(st.session_state['scene_cabinets'], i)
+            get_plinthe_for_cabinet(scene, i)
             if cabinet_has_feet else None
         )
         if plinthe_group:
@@ -951,14 +964,14 @@ def calculate_all_project_parts():
             # Joue commune (caissons superposés) et modèle cache-pieds pris en compte.
             joue_geo = cabinet_joue_dims(
                 cabinet, joue_key, cabinet_has_feet,
-                st.session_state.get('foot_height', 0.0), fileur_w
+                foot_height, fileur_w
             )
             if joue_geo is None:
                 continue  # recouverte par la joue commune du caisson du dessous
             _joue_span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
             _joue_ref = f"{joue_label} (C{i})"
             if _joue_span.get('span_up'):
-                _child = get_cabinet_above_index(st.session_state["scene_cabinets"], i)
+                _child = get_cabinet_above_index(scene, i)
                 _joue_ref = f"{joue_label} commune (C{i}+C{_child})"
             elif joue_key == 'dessus' and _joue_span.get('span_right'):
                 _joue_ref = f"{joue_label} commune (C{i}+C{_joue_span.get('neighbor')})"
@@ -1017,7 +1030,7 @@ def calculate_all_project_parts():
             # descend devant les pieds en s'arrêtant à 10 mm du sol.
             dH, _ = get_door_vertical_geometry(
                 get_cabinet_door_height_raw(cabinet), dp,
-                cabinet_has_feet, st.session_state.get('foot_height', 0.0)
+                cabinet_has_feet, foot_height
             )
             
             # Porte dans une colonne (entre montants) ou sur tout le caisson.
@@ -1260,6 +1273,159 @@ def get_cached_project_parts():
         st.session_state['parts_context_json'] = parts_context_json
         st.session_state['parts_cache_schema_version'] = PARTS_CACHE_SCHEMA_VERSION
     return st.session_state.get('parts_cache', ([], {}))
+
+
+# Champs client comparés entre plusieurs sauvegardes pour la feuille commune.
+MERGE_CLIENT_FIELDS = [
+    ("client", "Client"),
+    ("adresse_chantier", "Adresse Chantier"),
+    ("ref_chantier", "Réf. Chantier"),
+    ("telephone", "Téléphone / Mail"),
+]
+
+
+def _parts_for_saved_project(payload):
+    """Calcule la feuille de débit d'une sauvegarde sans toucher au projet en cours."""
+    parts, _ = calculate_all_project_parts(
+        scene=copy.deepcopy(payload.get('scene_cabinets', []) or []),
+        has_feet=bool(payload.get('has_feet', False)),
+        foot_height=float(payload.get('foot_height', 80.0) or 0.0),
+    )
+    return parts
+
+
+def _client_signature(payload):
+    return tuple(str(payload.get(k, "") or "").strip().casefold() for k, _ in MERGE_CLIENT_FIELDS)
+
+
+def _merged_debit_parts(saves):
+    """Assemble les pièces de plusieurs meubles : chaque ligne garde le nom du meuble."""
+    merged = []
+    for meuble_name, payload in saves:
+        for part in _parts_for_saved_project(payload):
+            row = dict(part)
+            row["Référence Pièce"] = f"{meuble_name} · {part.get('Référence Pièce', '')}"
+            row["Caisson"] = f"{meuble_name} {part.get('Caisson', '')}".strip()
+            merged.append(row)
+    return merged
+
+
+def _render_merged_debit_tool():
+    """Etape 1B bis : une feuille de débit commune à plusieurs sauvegardes XLSX."""
+    with st.expander("📑 Feuille de débit commune à plusieurs meubles"):
+        st.caption(
+            "Chargez plusieurs sauvegardes (.xlsx exportées par le site) : leurs pièces sont "
+            "réunies dans un seul fichier de débit, classées par matière. Le projet en cours n'est pas modifié."
+        )
+        files = st.file_uploader(
+            "Sauvegardes à regrouper (.xlsx)",
+            type=["xlsx"],
+            accept_multiple_files=True,
+            key="merge_debit_files",
+        )
+        if not files:
+            return
+        if len(files) < 2:
+            st.info("Ajoutez au moins deux sauvegardes.")
+            return
+        files_key = tuple((f.name, f.size) for f in files)
+        if st.session_state.get("merge_debit_files_key") != files_key:
+            st.session_state["merge_debit_files_key"] = files_key
+            st.session_state["merge_debit_xls"] = None
+
+        saves = []
+        used_names = {}
+        for f in files:
+            try:
+                payload = read_save_payload(f)
+            except Exception as exc:
+                st.error(f"{f.name} : lecture impossible ({exc}).")
+                return
+            if not payload:
+                st.error(f"{f.name} : ce fichier ne contient pas de sauvegarde de projet.")
+                return
+            name = str(payload.get("project_name") or "").strip() or os.path.splitext(f.name)[0]
+            used_names[name] = used_names.get(name, 0) + 1
+            if used_names[name] > 1:
+                name = f"{name} ({used_names[name]})"
+            saves.append((name, payload))
+
+        st.markdown("**Meubles regroupés :** " + ", ".join(n for n, _ in saves))
+
+        # Infos client : identiques partout -> reprises telles quelles, sinon à saisir.
+        signatures = {_client_signature(p) for _, p in saves}
+        first = saves[0][1]
+        if len(signatures) == 1:
+            client_info = {k: str(first.get(k, "") or "") for k, _ in MERGE_CLIENT_FIELDS}
+            st.success(f"Même client sur toutes les sauvegardes : {client_info['client'] or '(sans nom)'}")
+        else:
+            st.warning("Les informations client diffèrent entre les sauvegardes : indiquez celles de la feuille commune.")
+            distinct = []
+            for name, p in saves:
+                if all(_client_signature(p) != _client_signature(d) for _, d in distinct):
+                    distinct.append((name, p))
+            src_idx = st.selectbox(
+                "Partir des informations de",
+                options=range(len(distinct)),
+                format_func=lambda i: f"{distinct[i][0]} — {distinct[i][1].get('client', '') or '(sans client)'}",
+                key="merge_client_source",
+            )
+            src = distinct[src_idx][1]
+            client_info = {}
+            for k, label in MERGE_CLIENT_FIELDS:
+                client_info[k] = st.text_input(
+                    label, value=str(src.get(k, "") or ""), key=f"merge_client_{k}_{src_idx}"
+                )
+
+        dates = []
+        for _, p in saves:
+            try:
+                dates.append(datetime.date.fromisoformat(str(p.get("date_souhaitee"))))
+            except (TypeError, ValueError):
+                pass
+        date_souhaitee = st.date_input(
+            "Date souhaitée (la plus proche des sauvegardes par défaut)",
+            value=min(dates) if dates else datetime.date.today(),
+            key="merge_date_souhaitee",
+        )
+
+        def _common(key):
+            values = []
+            for _, p in saves:
+                v = str(p.get(key, "") or "").strip()
+                if v and v not in values:
+                    values.append(v)
+            return " / ".join(values)
+
+        if st.button("Générer la feuille de débit commune", key="merge_debit_generate", use_container_width=True):
+            try:
+                from excel_export import create_styled_excel
+
+                parts = _merged_debit_parts(saves)
+                project_info = {
+                    "project_name": " + ".join(n for n, _ in saves),
+                    **client_info,
+                    "date": datetime.date.today().strftime("%d/%m/%Y"),
+                    "date_souhaitee": date_souhaitee,
+                    "chant_mm": _common("chant_mm"),
+                    "decor_chant": _common("decor_chant"),
+                }
+                st.session_state["merge_debit_xls"] = create_styled_excel(project_info, pd.DataFrame(parts))
+                st.session_state["merge_debit_count"] = len(parts)
+            except Exception as exc:
+                st.session_state["merge_debit_xls"] = None
+                st.error(f"Génération impossible : {exc}")
+
+        if st.session_state.get("merge_debit_xls"):
+            client_slug = (client_info.get("client") or "commun").strip().replace(" ", "_")
+            st.download_button(
+                f"⬇️ Télécharger la feuille commune ({st.session_state.get('merge_debit_count', 0)} lignes)",
+                data=st.session_state["merge_debit_xls"],
+                file_name=f"Debit_commun_{client_slug}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="merge_debit_download",
+                use_container_width=True,
+            )
 
 # Fonction pour charger le logo en base64
 def load_image_base64(filename):
@@ -1663,6 +1829,7 @@ with col1:
         st.file_uploader("Charger un Projet (.xlsx)", type=["xlsx"], key="file_loader", on_change=load_save_state)
         st.caption("Import configurateur web: chargez le JSON client pour reconstruire un meuble représentatif.")
         st.file_uploader("Charger un Projet Configurateur (.json)", type=["json"], key="web_json_loader", on_change=load_web_config_json_state)
+        _render_merged_debit_tool()
         st.markdown("---")
         st.markdown('<div class="kb-step">Etape 1C - Assemblage de la scène</div>', unsafe_allow_html=True)
         st.markdown('<p class="kb-note">Commencez par le caisson principal puis ajoutez les caissons secondaires avec le panneau interactif.</p>', unsafe_allow_html=True)

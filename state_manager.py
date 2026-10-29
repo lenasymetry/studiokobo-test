@@ -154,44 +154,53 @@ def initialize_session_state():
     st.session_state.setdefault('exports_skp_open_data', None)
     st.session_state.setdefault('exports_skp_open_ok', False)
 
+def read_save_payload(uploaded_file):
+    """Lit le JSON de sauvegarde (feuille cachée SaveData) d'un XLSX exporté.
+
+    Renvoie None si le fichier ne contient pas de sauvegarde.
+    """
+    workbook = openpyxl.load_workbook(uploaded_file)
+    if 'SaveData' not in workbook.sheetnames:
+        return None
+    save_sheet = workbook['SaveData']
+    # Le JSON peut être découpé sur plusieurs lignes (limite Excel de
+    # 32767 caractères par cellule) : on reassemble tous les morceaux.
+    chunks = []
+    for (cell,) in save_sheet.iter_rows(min_col=1, max_col=1, values_only=False):
+        if cell.value is None:
+            break
+        chunks.append(str(cell.value))
+    json_data_str = "".join(chunks)
+    return json.loads(json_data_str) if json_data_str else None
+
+
 def load_save_state():
     if 'file_loader' in st.session_state and st.session_state.file_loader is not None:
         uploaded_file = st.session_state.file_loader
         try:
-            workbook = openpyxl.load_workbook(uploaded_file)
-            if 'SaveData' in workbook.sheetnames:
-                save_sheet = workbook['SaveData']
-                # Le JSON peut être découpé sur plusieurs lignes (limite Excel de
-                # 32767 caractères par cellule) : on reassemble tous les morceaux.
-                chunks = []
-                for (cell,) in save_sheet.iter_rows(min_col=1, max_col=1, values_only=False):
-                    if cell.value is None:
-                        break
-                    chunks.append(str(cell.value))
-                json_data_str = "".join(chunks)
-                if json_data_str:
-                    loaded_data = json.loads(json_data_str)
-                    st.session_state['project_name'] = loaded_data.get('project_name', 'Nouveau Projet')
-                    st.session_state['client'] = loaded_data.get('client', '')
-                    st.session_state['adresse_chantier'] = loaded_data.get('adresse_chantier', '') # AJOUTÉ
-                    st.session_state['ref_chantier'] = loaded_data.get('ref_chantier', '')
-                    st.session_state['telephone'] = loaded_data.get('telephone', '')
-                    if 'date_souhaitee' in loaded_data:
-                         st.session_state['date_souhaitee'] = datetime.date.fromisoformat(loaded_data['date_souhaitee'])
-                    st.session_state['panneau_decor'] = loaded_data.get('panneau_decor', '')
-                    st.session_state['chant_mm'] = loaded_data.get('chant_mm', '')
-                    st.session_state['decor_chant'] = loaded_data.get('decor_chant', '')
-                    st.session_state['has_feet'] = loaded_data.get('has_feet', False)
-                    st.session_state['foot_height'] = loaded_data.get('foot_height', 80.0)
-                    st.session_state['foot_diameter'] = loaded_data.get('foot_diameter', 50.0)
-                    st.session_state['scene_cabinets'] = loaded_data.get('scene_cabinets', [])
-                    if st.session_state['scene_cabinets']:
-                        st.session_state['selected_cabinet_index'] = 0
-                        st.session_state['base_cabinet_index'] = 0
-                    else:
-                        st.session_state['selected_cabinet_index'] = None
-                        st.session_state['base_cabinet_index'] = 0
-                    st.toast("Projet chargé.", icon="✅")
+            loaded_data = read_save_payload(uploaded_file)
+            if loaded_data:
+                st.session_state['project_name'] = loaded_data.get('project_name', 'Nouveau Projet')
+                st.session_state['client'] = loaded_data.get('client', '')
+                st.session_state['adresse_chantier'] = loaded_data.get('adresse_chantier', '') # AJOUTÉ
+                st.session_state['ref_chantier'] = loaded_data.get('ref_chantier', '')
+                st.session_state['telephone'] = loaded_data.get('telephone', '')
+                if 'date_souhaitee' in loaded_data:
+                     st.session_state['date_souhaitee'] = datetime.date.fromisoformat(loaded_data['date_souhaitee'])
+                st.session_state['panneau_decor'] = loaded_data.get('panneau_decor', '')
+                st.session_state['chant_mm'] = loaded_data.get('chant_mm', '')
+                st.session_state['decor_chant'] = loaded_data.get('decor_chant', '')
+                st.session_state['has_feet'] = loaded_data.get('has_feet', False)
+                st.session_state['foot_height'] = loaded_data.get('foot_height', 80.0)
+                st.session_state['foot_diameter'] = loaded_data.get('foot_diameter', 50.0)
+                st.session_state['scene_cabinets'] = loaded_data.get('scene_cabinets', [])
+                if st.session_state['scene_cabinets']:
+                    st.session_state['selected_cabinet_index'] = 0
+                    st.session_state['base_cabinet_index'] = 0
+                else:
+                    st.session_state['selected_cabinet_index'] = None
+                    st.session_state['base_cabinet_index'] = 0
+                st.toast("Projet chargé.", icon="✅")
         except Exception as e:
             st.toast(f"Erreur chargement : {e}", icon="❌")
 
