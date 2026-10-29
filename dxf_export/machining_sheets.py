@@ -505,9 +505,12 @@ class _Drawer:
         self.msp.add_line(self.P(x0, y0), self.P(x1, y1), dxfattribs={"layer": layer})
 
     def hatch(self, x0, y0, x1, y1):
+        self.hatch_poly([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+
+    def hatch_poly(self, pts):
         h = self.msp.add_hatch(dxfattribs={"layer": "HACHURES"})
         h.set_pattern_fill("ANSI31", scale=0.5 * self.s)
-        h.paths.add_polyline_path([self.P(x0, y0), self.P(x1, y0), self.P(x1, y1), self.P(x0, y1)], is_closed=True)
+        h.paths.add_polyline_path([self.P(x, y) for x, y in pts], is_closed=True)
 
     def circle(self, x, y, d):
         self.msp.add_circle(self.P(x, y), radius=max(0.25, d / 2.0), dxfattribs={"layer": "TROUS"})
@@ -644,12 +647,36 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
     for side, (x0, y0, x1, y1) in tranche_rects.items():
         info = sides[side]
         edge = info["edge"]
-        D.rect(x0, y0, x1, y1, layer="TRANCHES")
-        if chants.get(chant_key[edge]):
-            D.hatch(x0, y0, x1, y1)
         horizontal = side in ("bottom", "top")
         cx_mid = (x0 + x1) / 2.0
         cy_mid = (y0 + y1) / 2.0
+        # Rainures vues de bout : encoche ouverte côté face (tranche dépliée,
+        # son bord côté face est celui qui touche la face), profondeur à
+        # l'échelle de la tranche dessinée. L'encoche est découpée dans le
+        # contour de la tranche (pas de trait sur son ouverture) et dans le
+        # hachurage du chant.
+        grooves = sheet.edge_grooves(edge)
+        face_c = {"bottom": y1, "top": y0, "left": x1, "right": x0}[side]
+        inward = {"bottom": -1.0, "top": 1.0, "left": -1.0, "right": 1.0}[side]
+        notches = []
+        for g in grooves:
+            a, b = (sheet.edge_point(edge, t) for t in (g["y0"], g["y1"]))
+            a, b = sorted((a[0], b[0]) if horizontal else (a[1], b[1]))
+            notches.append((a, b, face_c + inward * g["depth"] / sheet.T * td, g))
+        outline = []
+        corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+        for i, (p, q) in enumerate(zip(corners, corners[1:] + corners[:1])):
+            outline.append(p)
+            k = 1 if horizontal else 0          # coordonnée fixe du bord côté face
+            if notches and abs(p[k] - face_c) < 1e-9 and abs(q[k] - face_c) < 1e-9:
+                fwd = q[1 - k] > p[1 - k]
+                for a, b, bot, _ in sorted(notches, key=lambda n: n[0], reverse=not fwd):
+                    u, v = (a, b) if fwd else (b, a)
+                    for w, c in ((u, face_c), (u, bot), (v, bot), (v, face_c)):
+                        outline.append((w, c) if horizontal else (c, w))
+        msp.add_lwpolyline([D.P(*pt) for pt in outline], close=True, dxfattribs={"layer": "TRANCHES", "color": 7})
+        if chants.get(chant_key[edge]):
+            D.hatch_poly(outline)
         positions = []
         for h in info["holes"]:
             px, py = sheet.edge_point(edge, h["_t"])
@@ -658,19 +685,7 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
             d = _hole_diameter(h.get("diam_str"), 8.0)
             # Trou vu de bout dans l'épaisseur de la tranche : cercle limité à la tranche.
             D.circle(pos if horizontal else cx_mid, cy_mid if horizontal else pos, min(d, td * 0.8))
-        # Rainures vues de bout : encoche ouverte côté face (tranche dépliée,
-        # son bord côté face est celui qui touche la face), profondeur à
-        # l'échelle de la tranche dessinée.
-        grooves = sheet.edge_grooves(edge)
-        face_c = {"bottom": y1, "top": y0, "left": x1, "right": x0}[side]
-        inward = {"bottom": -1.0, "top": 1.0, "left": -1.0, "right": 1.0}[side]
-        for g in grooves:
-            a, b = (sheet.edge_point(edge, t) for t in (g["y0"], g["y1"]))
-            a, b = (a[0], b[0]) if horizontal else (a[1], b[1])
-            bot = face_c + inward * g["depth"] / sheet.T * td
-            pts = ([(a, face_c), (a, bot), (b, bot), (b, face_c)] if horizontal
-                   else [(face_c, a), (bot, a), (bot, b), (face_c, b)])
-            msp.add_lwpolyline([D.P(*p) for p in pts], dxfattribs={"layer": "USINAGE"})
+        for a, b, bot, g in notches:
             positions.extend([a, b])
             # Profondeur, juste à côté de l'encoche (les bouts de tranche
             # portent déjà les cotes d'épaisseur et d'axe des perçages).
@@ -746,7 +761,7 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
     for g in sheet.grooves():
         for y in (g["y0"], g["y1"]):
             a, b = sheet.tr(0, y), sheet.tr(sheet.L, y)
-            D.line(a[0], a[1], b[0], b[1], layer="USINAGE")
+            msp.add_line(D.P(*a), D.P(*b), dxfattribs={"layer": "USINAGE", "color": 7})
         # Libellé côté intérieur de la pièce (loin du bord de référence).
         if g["back"]:
             tx, ty = sheet.tr(sheet.L / 2.0, g["y0"] - 3 * s)
