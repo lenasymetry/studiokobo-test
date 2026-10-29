@@ -1304,10 +1304,10 @@ def _merged_debit_parts(saves):
     for meuble_name, payload in saves:
         for part in _parts_for_saved_project(payload):
             row = dict(part)
-            row["Référence Pièce"] = f"{meuble_name} · {part.get('Référence Pièce', '')}"
+            lettre = str(part.get("Lettre", "") or "").split('-')[-1]
+            row["Référence Pièce"] = f"{lettre} - {meuble_name} · {part.get('Référence Pièce', '')}"
             row["Caisson"] = f"{meuble_name} {part.get('Caisson', '')}".strip()
-            lettre = str(part.get("Lettre", "") or "")
-            row["Lettre affichée"] = f"{lettre.split('-')[-1]} - {meuble_name}"
+            row["Repère fusionné"] = True
             merged.append(row)
     return merged
 

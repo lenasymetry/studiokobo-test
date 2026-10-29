@@ -59,9 +59,9 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         
         ws.column_dimensions['A'].width = 4 
         ws.column_dimensions['B'].width = 5 
-        if "Lettre affichée" in df_mat.columns:
-            longest = df_mat["Lettre affichée"].astype(str).str.len().max()
-            ws.column_dimensions['B'].width = max(5, int(longest) + 2)
+        # Feuille commune à plusieurs meubles : repère et référence fusionnés
+        # dans une seule cellule B:C ("A - 1B · Traverse Bas").
+        merged_ref = "Repère fusionné" in df_mat.columns
         ws.column_dimensions['C'].width = 40 
         ws.column_dimensions['D'].width = 6 
         ws.column_dimensions['E'].width = 12 
@@ -221,12 +221,13 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         ws['J8'].border = border_outline_medium
         ws['K8'].border = border_outline_medium
 
-        ws.merge_cells('C10:C11')
-        ws['C10'] = "Référence Pièce"
-        ws['C10'].font = font_bold_std
-        ws['C10'].alignment = Alignment(horizontal='center', vertical='center')
-        ws['C10'].border = border_outline_medium
-        ws['C11'].border = border_outline_medium
+        ref_head = 'B10' if merged_ref else 'C10'
+        ws.merge_cells(f'{ref_head}:C11')
+        ws[ref_head] = "Repère - Référence Pièce" if merged_ref else "Référence Pièce"
+        ws[ref_head].font = font_bold_std
+        ws[ref_head].alignment = Alignment(horizontal='center', vertical='center')
+        for head_cell in ('B10', 'B11', 'C10', 'C11') if merged_ref else ('C10', 'C11'):
+            ws[head_cell].border = border_outline_medium
 
         ws.merge_cells('D10:D11')
         ws['D10'] = "Qté"
@@ -296,14 +297,14 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         for idx, row in df_mat.iterrows():
             raw_lettre = row.get("Lettre", "")
             lettre_display = raw_lettre.split('-')[-1] if '-' in str(raw_lettre) else raw_lettre
-            # Feuille commune à plusieurs meubles : repère déjà composé ("A - 1B").
-            forced_lettre = row.get("Lettre affichée")
-            if isinstance(forced_lettre, str) and forced_lettre:
-                lettre_display = forced_lettre
 
             ws.cell(row=current_row, column=1, value=line_number).font = font_bold_std 
-            ws.cell(row=current_row, column=2, value=lettre_display).font = font_std
-            ws.cell(row=current_row, column=3, value=row.get("Référence Pièce", "")).font = font_std
+            if merged_ref:
+                ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row, end_column=3)
+                ws.cell(row=current_row, column=2, value=row.get("Référence Pièce", "")).font = font_std
+            else:
+                ws.cell(row=current_row, column=2, value=lettre_display).font = font_std
+                ws.cell(row=current_row, column=3, value=row.get("Référence Pièce", "")).font = font_std
             ws.cell(row=current_row, column=4, value=row.get("Qté", 1)).font = font_std
             ws.cell(row=current_row, column=5, value=row.get("Longueur (mm)", 0)).font = font_std
             ws.cell(row=current_row, column=6, value=row.get("Chant Avant", "NON")).font = font_std
@@ -316,7 +317,7 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
             for c_idx in range(1, 12):
                 cell = ws.cell(row=current_row, column=c_idx)
                 cell.border = border_thin
-                if c_idx in [3, 11]: 
+                if c_idx in [3, 11] or (merged_ref and c_idx == 2): 
                     cell.alignment = Alignment(horizontal='left', vertical='center')
                 else:
                     cell.alignment = Alignment(horizontal='center', vertical='center')
