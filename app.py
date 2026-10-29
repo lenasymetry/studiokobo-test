@@ -2709,6 +2709,42 @@ with col1:
                             else:
                                 joue['span_up'] = False
                             apply_joue_spans(_scene_j)
+                            # Hauteur choisie : depuis le bas ou depuis le haut du meuble.
+                            joue['custom_height_on'] = st.checkbox(
+                                "Choisir la hauteur de la joue",
+                                value=bool(joue.get('custom_height_on', False)),
+                                key=f"joue_custom_h_on_{joue_key}_{idx}",
+                            )
+                            if joue['custom_height_on']:
+                                _full_j = cabinet_joue_dims(
+                                    {**selected_cab, 'joues': {**joues, joue_key: {**joue, 'custom_height': 0}}},
+                                    joue_key,
+                                    bool(st.session_state.get('has_feet', False) or selected_cab.get('has_feet', False)),
+                                    st.session_state.get('foot_height', 0.0),
+                                    float(selected_cab.get('door_props', {}).get('fileur_width', 0) or 0.0),
+                                )
+                                _full_len = float(_full_j['length']) if _full_j else 0.0
+                                _hc1, _hc2 = st.columns(2)
+                                with _hc1:
+                                    joue['height_anchor'] = st.radio(
+                                        "Mesurée depuis",
+                                        options=['bottom', 'top'],
+                                        index=1 if joue.get('height_anchor') == 'top' else 0,
+                                        format_func=lambda a: 'le bas du meuble' if a == 'bottom' else 'le haut du meuble',
+                                        key=f"joue_anchor_{joue_key}_{idx}",
+                                    )
+                                with _hc2:
+                                    joue['custom_height'] = st.number_input(
+                                        "Hauteur de la joue (mm)",
+                                        min_value=1.0,
+                                        max_value=max(1.0, _full_len),
+                                        value=min(max(1.0, float(joue.get('custom_height') or _full_len or 1.0)), max(1.0, _full_len)),
+                                        step=1.0,
+                                        key=f"joue_custom_h_{joue_key}_{idx}_{int(_full_len)}",
+                                    )
+                                st.caption(f"Hauteur complète : {_full_len:.0f} mm (cache-pieds compris).")
+                            else:
+                                joue['custom_height'] = 0.0
                         if joue_key == 'dessus':
                             # Joue de dessus commune aux deux caissons côte à côte
                             # (pendant de la joue latérale commune des superposés).
@@ -2755,7 +2791,7 @@ with col1:
                                 f"{_joue_geo['thickness']:.0f} mm (L × l × ép.)"
                                 + (
                                     f" · prolongée de {abs(_joue_geo['z_offset']):.0f} mm pour cacher les pieds"
-                                    if _joue_geo['z_offset'] else ""
+                                    if _joue_geo['z_offset'] < 0 else ""
                                 )
                             )
                             joue['material'] = st.text_input(

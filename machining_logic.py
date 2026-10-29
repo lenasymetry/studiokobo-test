@@ -1479,6 +1479,26 @@ def _apply_top_joue_spans(scene_cabinets):
     return scene_cabinets
 
 
+def _apply_joue_custom_height(geo, joue):
+    """Hauteur choisie d'une joue latérale, plus courte que la hauteur complète.
+
+    Ancrée en bas : le bas de la joue ne bouge pas (cache-pieds compris), la
+    joue s'arrête plus bas. Ancrée en haut : le haut reste au ras du meuble et
+    le bas remonte. Une valeur nulle ou supérieure garde la hauteur complète.
+    """
+    try:
+        wanted = float(joue.get('custom_height') or 0.0)
+    except (TypeError, ValueError):
+        wanted = 0.0
+    full = float(geo['length'])
+    if wanted <= 0.0 or wanted >= full:
+        return geo
+    if joue.get('height_anchor', 'bottom') == 'top':
+        geo['z_offset'] = float(geo['z_offset']) + (full - wanted)
+    geo['length'] = wanted
+    return geo
+
+
 def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur_width=0.0):
     """Dimensions d'une joue en tenant compte de la joue commune (caissons
     superposés) et du modèle cache-pieds. None si la joue est masquée par la
@@ -1509,6 +1529,8 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
             fileur_width = 0.0
             front_door = bool(span.get('front_door', front_door))
     geo = get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)
+    if joue_key in JOUE_SIDE_KEYS:
+        _apply_joue_custom_height(geo, joue)
     # Meuble à porte : la joue avance de 20 mm pour couvrir la porte.
     # Caisson à tiroir : avancée optionnelle des joues dessus/dessous (façade
     # 19 mm + 1 mm de jeu tiroir/caisson).
@@ -1569,6 +1591,7 @@ def debit_piece_chants(cabinet, ref_key, default):
 
 
 # --- Assemblage montant / joue -------------------------------------------------
+JOUE_DOWEL_MIN_EDGE = 10.0    # tourillon gardé s'il reste à 10 mm du bord de la joue
 JOUE_DOWEL_EDGE = 40.0        # premier/dernier tourillon depuis les bords haut/bas
 JOUE_DOWEL_SPACING = 400.0    # espacement visé entre tourillons d'une ligne
 UPRIGHT_JOUE_SIDE = {'mg': 'gauche', 'md': 'droite'}
@@ -1639,6 +1662,8 @@ def joue_assembly_holes(scene_cabinets, cab_index, joue_key, has_feet=False, foo
     for c, base in covered:
         for h in upright_joue_holes(c):
             z = below + base + float(h['y'])
+            if not (JOUE_DOWEL_MIN_EDGE <= z <= length - JOUE_DOWEL_MIN_EDGE):
+                continue  # joue raccourcie : ce tourillon tombe hors du panneau
             x = z if joue_key == 'gauche' else length - z
             holes.append({'type': 'tourillon', 'x': x, 'y': front + float(h['x']), 'diam_str': "⌀8"})
     return holes
