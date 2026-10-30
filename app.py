@@ -1141,9 +1141,9 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             for s_idx, s in enumerate(cabinet['shelves']):
                 s_type = s.get('shelf_type', 'mobile')
                 s_th = float(s.get('thickness', 19.0))
-                # Règle demandée: étagère = longueur de la traverse, largeur de la traverse - 19 mm
+                # Règle demandée: étagère = longueur de sa zone (traverse si tout le caisson), largeur de la traverse - 19 mm
                 # (mobile : jeu de pose en plus). Derrière un montant de charnière : reculée.
-                dim_L, dim_W = shelf_piece_dims(L_traverse, W_inner, s, shelf_front_setback(cabinet, s))
+                dim_L, dim_W = shelf_piece_dims(L_traverse, W_inner, s, shelf_front_setback(cabinet, s), cabinet)
                 
                 shelf_dims_cache[f"C{i}_S{s_idx}"] = (dim_L, dim_W)
                 

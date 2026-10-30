@@ -723,11 +723,20 @@ MOBILE_SHELF_LENGTH_CLEARANCE_MM = 2.0
 MOBILE_SHELF_DEPTH_CLEARANCE_MM = 20.0
 
 
-def shelf_piece_dims(L_traverse, W_inner, shelf, setback=0.0):
+def shelf_piece_dims(L_traverse, W_inner, shelf, setback=0.0, cabinet=None):
     """(longueur, largeur) d'une étagère, source unique pour la feuille de
-    débit et la feuille d'usinage. Fixe : longueur de traverse x (profondeur
-    - 19 - recul). Mobile : 2 mm de moins en longueur, 20 mm en profondeur."""
+    débit et la feuille d'usinage. Fixe : longueur de sa zone (traverse si
+    elle couvre tout le caisson) x (profondeur - 19 - recul). Mobile : 2 mm de
+    moins en longueur, 20 mm en profondeur."""
     L = float(L_traverse)
+    if cabinet is not None:
+        # Étagère limitée à une zone (entre montants) : on retire à la
+        # traverse la largeur intérieure qu'elle ne couvre pas.
+        dims = cabinet.get('dims', {}) or {}
+        t_lr = float(dims.get('t_lr_raw', 19.0))
+        inner = float(dims.get('L_raw', 0.0)) - 2.0 * t_lr
+        x_min, x_max = shelf_x_span(cabinet, shelf)
+        L -= max(0.0, inner - (x_max - x_min))
     W = float(W_inner) - float(setback)
     if (shelf or {}).get('shelf_type', 'mobile') == 'mobile':
         L -= MOBILE_SHELF_LENGTH_CLEARANCE_MM

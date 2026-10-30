@@ -1572,7 +1572,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     
                     # Mêmes cotes que la feuille de débit : profondeur - 19 - recul,
                     # mobile = 2 mm de moins en longueur et 20 mm en profondeur.
-                    L_shelf, W_shelf = shelf_piece_dims(L_trav, W_inner, s, s_setback)
+                    L_shelf, W_shelf = shelf_piece_dims(L_trav, W_inner, s, s_setback, cab)
                     c_shelf = {"Chant Avant":True, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":False}
                     th_shelf = fixed_shelf_tr_draw.get(s_idx, [])
                     fh_shelf = []
