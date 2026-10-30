@@ -1570,7 +1570,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         # Pour les étagères mobiles, L_shelf est déjà défini à la ligne 240
                     
                     # Mêmes cotes que la feuille de débit : profondeur - 19 - recul,
-                    # mobile = 2 mm de moins en longueur et 5 mm en profondeur.
+                    # mobile = 2 mm de moins en longueur et 20 mm en profondeur.
                     L_shelf, W_shelf = shelf_piece_dims(L_trav, W_inner, s, s_setback)
                     c_shelf = {"Chant Avant":True, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":False}
                     th_shelf = fixed_shelf_tr_draw.get(s_idx, [])

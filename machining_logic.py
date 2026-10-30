@@ -720,13 +720,13 @@ def hinge_post_traverse_face_holes(div_x, t_lr):
 # Étagère mobile : jeu de pose retiré aux cotes d'une étagère fixe, pour
 # qu'elle passe entre les montants et devant le fond.
 MOBILE_SHELF_LENGTH_CLEARANCE_MM = 2.0
-MOBILE_SHELF_DEPTH_CLEARANCE_MM = 5.0
+MOBILE_SHELF_DEPTH_CLEARANCE_MM = 20.0
 
 
 def shelf_piece_dims(L_traverse, W_inner, shelf, setback=0.0):
     """(longueur, largeur) d'une étagère, source unique pour la feuille de
     débit et la feuille d'usinage. Fixe : longueur de traverse x (profondeur
-    - 19 - recul). Mobile : 2 mm de moins en longueur, 5 mm en profondeur."""
+    - 19 - recul). Mobile : 2 mm de moins en longueur, 20 mm en profondeur."""
     L = float(L_traverse)
     W = float(W_inner) - float(setback)
     if (shelf or {}).get('shelf_type', 'mobile') == 'mobile':
