@@ -1251,29 +1251,32 @@ def door_zone_span(cabinet):
     return None
 
 
-def door_hinge_side(cabinet):
-    """Côté des charnières de la porte simple native : 'left' | 'right'.
-
-    Par défaut le sens d'ouverture. Si la colonne de la porte est bordée d'un
-    montant de charnière d'un seul côté, ce montant l'emporte : les charnières
-    passent de son côté quand le sens d'ouverture le contredit."""
-    dp = cabinet.get('door_props', {}) or {}
-    side = 'left' if dp.get('door_opening') == 'left' else 'right'
+def door_on_hinge_post(cabinet):
+    """La colonne de la porte native est-elle bordée d'un montant de charnière
+    (montant de 100 mm posé exprès pour les charnières) ?"""
     span = door_zone_span(cabinet)
     if span is None:
-        return side
-    post_sides = set()
+        return False
     for div in cabinet.get('vertical_dividers', []) or []:
         if not is_hinge_post(div) or div.get('_preview'):
             continue
         c = float(div.get('position_x', 0.0))
         th = float(div.get('thickness', 19.0))
         tol = max(6.0, th + 1.0)
-        if abs(c + th / 2.0 - span[0]) <= tol:
-            post_sides.add('left')
-        if abs(c - th / 2.0 - span[1]) <= tol:
-            post_sides.add('right')
-    return post_sides.pop() if len(post_sides) == 1 else side
+        if abs(c + th / 2.0 - span[0]) <= tol or abs(c - th / 2.0 - span[1]) <= tol:
+            return True
+    return False
+
+
+def door_sheet_hinge_side(cabinet):
+    """Bord des cuvettes sur la feuille d'usinage d'une porte simple native :
+    'left' | 'right'. Le sens d'ouverture choisi, sauf pour une porte posée
+    sur un montant de charnière : cuvettes sur le bord opposé (symétrie)."""
+    dp = cabinet.get('door_props', {}) or {}
+    side = 'left' if dp.get('door_opening') == 'left' else 'right'
+    if door_on_hinge_post(cabinet):
+        return 'right' if side == 'left' else 'left'
+    return side
 
 
 def column_filler_spans(cabinet):
