@@ -48,6 +48,7 @@ from machining_logic import (
     joue_drawer_advance_available,
     is_hinge_post,
     shelf_front_setback,
+    shelf_piece_dims,
     HINGE_POST_DEPTH_MM,
     joue_assembly_holes,
     joue_led_grooves,
@@ -226,20 +227,26 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
                 },
             }
             # Joue latérale : tourillons en face de ceux de la face extérieure
-            # du (des) montant(s) qu'elle habille.
+            # du (des) montant(s) qu'elle habille. La feuille montre la face
+            # percée, côté montant (pas la face vue) : repère retourné en
+            # profondeur (y = 0 à l'arrière), chants avant/arrière échangés.
             _ref_l = ref.lower()
             if "joue" in _ref_l and ("gauche" in _ref_l or "droite" in _ref_l):
+                _ch = extra_plan["chants"]
+                _ch["Chant Avant"], _ch["Chant Arrière"] = _ch["Chant Arrière"], _ch["Chant Avant"]
                 try:
                     _ci = int(first_c[1:])
                 except ValueError:
                     _ci = None
                 if _ci is not None:
-                    extra_plan["face_holes"] = apply_face_hole_depths(ref, joue_assembly_holes(
+                    _holes = joue_assembly_holes(
                         st.session_state['scene_cabinets'], _ci,
                         'gauche' if "gauche" in _ref_l else 'droite',
                         bool(st.session_state.get('has_feet', False)),
                         st.session_state.get('foot_height', 0.0),
-                    ))
+                    )
+                    extra_plan["face_holes"] = apply_face_hole_depths(ref, [
+                        dict(h, y=extra_plan["W"] - float(h['y'])) for h in _holes])
             # Joue de dessous : rainure du bandeau LED.
             if "joue dessous" in _ref_l:
                 try:
@@ -1134,10 +1141,9 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             for s_idx, s in enumerate(cabinet['shelves']):
                 s_type = s.get('shelf_type', 'mobile')
                 s_th = float(s.get('thickness', 19.0))
-                # Règle demandée: étagère = longueur de la traverse, largeur de la traverse - 19 mm.
-                dim_L = L_traverse
-                # Étagère qui passe derrière un montant de charnière : reculée.
-                dim_W = W_inner - shelf_front_setback(cabinet, s)
+                # Règle demandée: étagère = longueur de la traverse, largeur de la traverse - 19 mm
+                # (mobile : jeu de pose en plus). Derrière un montant de charnière : reculée.
+                dim_L, dim_W = shelf_piece_dims(L_traverse, W_inner, s, shelf_front_setback(cabinet, s))
                 
                 shelf_dims_cache[f"C{i}_S{s_idx}"] = (dim_L, dim_W)
                 
@@ -3528,9 +3534,12 @@ with col1:
                             df.at[row_idx, "Chant Droit"] = False
                             continue
                         if "Etagère" in ref_key or "Étagère" in ref_key:
-                            # Règle demandée : étagères fixes et mobiles = dimensions traverses.
-                            df.at[row_idx, "Longueur (mm)"] = L_traverse
-                            df.at[row_idx, "Largeur (mm)"] = dims['W_raw']
+                            # Règle demandée : étagères fixes et mobiles = dimensions traverses
+                            # (mobile : jeu de pose en plus).
+                            _sh_type = 'mobile' if "mobile" in ref_key.lower() else 'fixe'
+                            _sh_L, _sh_W = shelf_piece_dims(L_traverse, dims['W_raw'], {'shelf_type': _sh_type})
+                            df.at[row_idx, "Longueur (mm)"] = _sh_L
+                            df.at[row_idx, "Largeur (mm)"] = _sh_W
                             continue
                         for key, dims_tuple in panel_dims.items():
                             if key in ref_key:

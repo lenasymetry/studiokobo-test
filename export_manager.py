@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -921,8 +921,7 @@ def _door_leaf_hinge_rows(door_cab, door_height, door_z_bottom):
     pos = _door_hinge_positions(door_cab, door_height, door_z_bottom)
     if dp.get('door_type', 'single') == 'double':
         return [('left', y) for y in pos['left']] + [('right', y) for y in pos['right']]
-    side = 'left' if dp.get('door_opening') == 'left' else 'right'
-    return [(side, y) for y in pos['left']]
+    return [(door_hinge_side(door_cab), y) for y in pos['left']]
 
 
 def _door_hinge_rows_for_cabinet(scene, cab_idx, cab):
@@ -1570,9 +1569,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         fixed_shelf_tr_draw[s_idx] = []
                         # Pour les étagères mobiles, L_shelf est déjà défini à la ligne 240
                     
-                    # W_shelf: étagère fixe = même largeur que traverse, mobile = largeur réduite.
-                    # Même largeur que la feuille de débit (profondeur - 19).
-                    W_shelf = float(W_inner) - s_setback
+                    # Mêmes cotes que la feuille de débit : profondeur - 19 - recul,
+                    # mobile = 2 mm de moins en longueur et 5 mm en profondeur.
+                    L_shelf, W_shelf = shelf_piece_dims(L_trav, W_inner, s, s_setback)
                     c_shelf = {"Chant Avant":True, "Chant Arrière":False, "Chant Gauche":False, "Chant Droit":False}
                     th_shelf = fixed_shelf_tr_draw.get(s_idx, [])
                     fh_shelf = []
@@ -1933,8 +1932,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         plans.append((f"Porte (C{cab_idx})", dW_half, dH, dp['door_thickness'], c_p, holes_p, [], [], None))
                 else:
                     dW = door_span_w - (2 * dp['door_gap'])
-                    hinge_side = 'left' if dp['door_opening']=='left' else 'right'
-                    holes_p = _build_door_face_holes(dW, y_h, hinge_side=hinge_side)
+                    # Montant de charnière d'un seul côté de la colonne : il
+                    # l'emporte sur le sens d'ouverture (cuvettes symétrisées).
+                    holes_p = _build_door_face_holes(dW, y_h, hinge_side=door_hinge_side(cab))
                     c_p = {"Chant Avant":True, "Chant Arrière":True, "Chant Gauche":True, "Chant Droit":True}
                     plan_quantities[f"Porte (C{cab_idx})"] = 1
                     plans.append((f"Porte (C{cab_idx})", dW, dH, dp['door_thickness'], c_p, holes_p, [], [], None))
@@ -2783,8 +2783,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                 holes_p = _build_door_face_holes(dW, y_h, hinge_side='left')
             else:
                 dW = L_raw - (2 * dp['door_gap'])
-                hinge_side = 'left' if dp.get('door_opening') == 'left' else 'right'
-                holes_p = _build_door_face_holes(dW, y_h, hinge_side=hinge_side)
+                holes_p = _build_door_face_holes(dW, y_h, hinge_side=door_hinge_side(cab))
 
             c_fa = {"Chant Avant": True, "Chant Arrière": True, "Chant Gauche": True, "Chant Droit": True}
             fig_door = draw_machining_view_pro_final(

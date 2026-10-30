@@ -256,13 +256,15 @@ def _triangles_for(title: str):
     for a, b in (("é", "e"), ("è", "e"), ("ê", "e"), ("ç", "c")):
         t = t.replace(a, b)
     # Joues latérales : longueur = hauteur du meuble. Bord 'gauche' (x = 0) =
-    # bas du meuble, bord 'avant' (y = 0) = avant du meuble.
+    # bas du meuble. La feuille montre la face percée (côté montant) : le
+    # repère est retourné en profondeur, l'avant du meuble est le bord
+    # 'arriere' (y = W) de la feuille.
     # Joues gauche et droite = pièces symétriques : le bas du meuble est d'un
     # côté de la feuille pour l'une, de l'autre côté pour l'autre.
     if "joue" in t and "droite" in t:
-        return [("droit", False), ("avant", True)]
+        return [("droit", False), ("arriere", True)]
     if "joue" in t and "gauche" in t:
-        return [("gauche", False), ("avant", True)]
+        return [("gauche", False), ("arriere", True)]
     if "joue" in t:
         return [("avant", True)]
     if "fileur colonne" in t or "plinthe" in t:

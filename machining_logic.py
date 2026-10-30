@@ -717,6 +717,24 @@ def hinge_post_traverse_face_holes(div_x, t_lr):
             + [{'type': 'vis', 'x': x_rel, 'y': y, 'diam_str': "⌀3"} for y in ys_vis])
 
 
+# Étagère mobile : jeu de pose retiré aux cotes d'une étagère fixe, pour
+# qu'elle passe entre les montants et devant le fond.
+MOBILE_SHELF_LENGTH_CLEARANCE_MM = 2.0
+MOBILE_SHELF_DEPTH_CLEARANCE_MM = 5.0
+
+
+def shelf_piece_dims(L_traverse, W_inner, shelf, setback=0.0):
+    """(longueur, largeur) d'une étagère, source unique pour la feuille de
+    débit et la feuille d'usinage. Fixe : longueur de traverse x (profondeur
+    - 19 - recul). Mobile : 2 mm de moins en longueur, 5 mm en profondeur."""
+    L = float(L_traverse)
+    W = float(W_inner) - float(setback)
+    if (shelf or {}).get('shelf_type', 'mobile') == 'mobile':
+        L -= MOBILE_SHELF_LENGTH_CLEARANCE_MM
+        W -= MOBILE_SHELF_DEPTH_CLEARANCE_MM
+    return max(0.0, L), max(0.0, W)
+
+
 def shelf_x_span(cabinet, shelf):
     """Étendue (x_min, x_max) d'une étagère, repère caisson."""
     dims = cabinet.get('dims', {}) or {}
@@ -1034,6 +1052,7 @@ def apply_face_hole_depths(panel_name, face_holes):
     """Profondeurs imposées des perçages de FACE (pas des tranches).
 
     - Porte : cuvette de charnière ⌀35 et ses 2 vis ⌀8 -> profondeur 13.
+    - Joue (face apparente de l'autre côté) : tourillons ⌀8 -> profondeur 12.
     - Toute autre pièce : tout trou ⌀8 -> profondeur 14.
     - Partout : vis ⌀3 -> profondeur 14.
     Retourne une nouvelle liste (les dictionnaires d'origine ne sont pas modifiés).
@@ -1041,6 +1060,7 @@ def apply_face_hole_depths(panel_name, face_holes):
     import re as _re
     name = str(panel_name or "").lower()
     is_door = "porte" in name or "door" in name
+    is_joue = "joue" in name
     out = []
     for h in face_holes or []:
         h = dict(h)
@@ -1052,6 +1072,8 @@ def apply_face_hole_depths(panel_name, face_holes):
                 h["diam_str"] = "⌀35/13"
             elif is_door and abs(diam - 8.0) < 0.01:
                 h["diam_str"] = "⌀8/13"
+            elif is_joue and abs(diam - 8.0) < 0.01:
+                h["diam_str"] = "⌀8/12"
             elif not is_door and abs(diam - 8.0) < 0.01:
                 h["diam_str"] = "⌀8/14"
             elif abs(diam - 3.0) < 0.01:
@@ -1227,6 +1249,31 @@ def door_zone_span(cabinet):
         if 0 <= zone_id < len(zones):
             return (float(zones[zone_id]['x_min']), float(zones[zone_id]['x_max']))
     return None
+
+
+def door_hinge_side(cabinet):
+    """Côté des charnières de la porte simple native : 'left' | 'right'.
+
+    Par défaut le sens d'ouverture. Si la colonne de la porte est bordée d'un
+    montant de charnière d'un seul côté, ce montant l'emporte : les charnières
+    passent de son côté quand le sens d'ouverture le contredit."""
+    dp = cabinet.get('door_props', {}) or {}
+    side = 'left' if dp.get('door_opening') == 'left' else 'right'
+    span = door_zone_span(cabinet)
+    if span is None:
+        return side
+    post_sides = set()
+    for div in cabinet.get('vertical_dividers', []) or []:
+        if not is_hinge_post(div) or div.get('_preview'):
+            continue
+        c = float(div.get('position_x', 0.0))
+        th = float(div.get('thickness', 19.0))
+        tol = max(6.0, th + 1.0)
+        if abs(c + th / 2.0 - span[0]) <= tol:
+            post_sides.add('left')
+        if abs(c - th / 2.0 - span[1]) <= tol:
+            post_sides.add('right')
+    return post_sides.pop() if len(post_sides) == 1 else side
 
 
 def column_filler_spans(cabinet):
