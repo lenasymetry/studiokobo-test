@@ -128,11 +128,29 @@ def _scene_to_json(scene):
     return json.dumps(scene, sort_keys=True, ensure_ascii=False, default=str)
 
 
+def _exports_code_version():
+    """Empreinte du code qui produit les livrables : après une mise à jour du
+    site, une session restée ouverte doit regénérer (sinon elle garde l'ancien
+    Excel / DXF / PDF en mémoire)."""
+    import glob
+    import hashlib
+    here = os.path.dirname(os.path.abspath(__file__))
+    h = hashlib.sha1()
+    for path in sorted(glob.glob(os.path.join(here, "*.py")) + glob.glob(os.path.join(here, "dxf_export", "*.py"))):
+        try:
+            with open(path, "rb") as f:
+                h.update(f.read())
+        except OSError:
+            pass
+    return h.hexdigest()
+
+
 def _exports_state_json(scene):
     """Empreinte de ce qui change les livrables : la scène ET les options
     globales des pieds (hauteur, pieds intermédiaires), qui modifient les
-    usinages sans toucher aux caissons."""
+    usinages sans toucher aux caissons, et la version du code."""
     return json.dumps({
+        "code": _exports_code_version(),
         "scene": json.loads(_scene_to_json(scene)),
         "has_feet": bool(st.session_state.get('has_feet', False)),
         "foot_height": float(st.session_state.get('foot_height', 0.0) or 0.0),
