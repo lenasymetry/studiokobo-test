@@ -27,7 +27,7 @@ def get_default_drawer_props_19():
         'drawer_handle_width': 150.0, 'drawer_handle_height': 40.0, 'drawer_handle_offset_top': 10.0,
         'material': 'Matière Tiroir',
         # Épaisseur intérieure (dos + fond) par défaut
-        'inner_thickness': 16.0
+        'inner_thickness': 19.0
     }
 
 def get_default_drawer_props():
@@ -48,7 +48,7 @@ def get_default_drawer_props():
         'zone_id': None,
         'material': 'Matière Tiroir',
         # Épaisseur intérieure (dos + fond) par défaut
-        'inner_thickness': 16.0
+        'inner_thickness': 19.0
     }
 
 def get_default_vertical_divider_props():
