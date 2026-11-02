@@ -131,6 +131,15 @@ PLINTHE_WIDTH = 80.0
 PLINTHE_THICKNESS = 19.0
 # Deux caissons sont jugés accolés si leurs bords se touchent à ce jeu près.
 PLINTHE_JOIN_TOLERANCE = 1.0
+# Pas de plinthe sous des pieds de 20 mm : seulement à partir de 80 mm.
+PLINTHE_MIN_FOOT_HEIGHT_MM = 80.0
+
+
+def feet_need_plinthe(foot_height):
+    try:
+        return float(foot_height or 0.0) >= PLINTHE_MIN_FOOT_HEIGHT_MM
+    except (TypeError, ValueError):
+        return False
 
 
 def get_plinthe_groups(scene_cabinets):

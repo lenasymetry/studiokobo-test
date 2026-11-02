@@ -64,6 +64,7 @@ from machining_logic import (
     get_cache_pied_drop,
     cabinet_rests_on_floor,
     get_plinthe_for_cabinet,
+    feet_need_plinthe,
     format_plinthe_labels,
     carcass_piece_dims,
     drawer_piece_dims,
@@ -1004,7 +1005,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
         # rattachée au premier d'entre eux (voir `get_plinthe_groups`).
         plinthe_group = (
             get_plinthe_for_cabinet(scene, i)
-            if cabinet_has_feet else None
+            if cabinet_has_feet and feet_need_plinthe(foot_height) else None
         )
         if plinthe_group:
             plinthe_ref, plinthe_caissons = format_plinthe_labels(plinthe_group['indices'])
@@ -3604,7 +3605,7 @@ with col1:
                     _feet_on = bool(st.session_state.get('has_feet', False) or selected_cab.get('has_feet', False))
                     plinthe_group = (
                         get_plinthe_for_cabinet(st.session_state['scene_cabinets'], idx)
-                        if _feet_on else None
+                        if _feet_on and feet_need_plinthe(st.session_state.get('foot_height', 0.0)) else None
                     )
                     cabinet_has_feet = bool(plinthe_group)
                     plinthe_length = plinthe_group['length'] if plinthe_group else 0.0

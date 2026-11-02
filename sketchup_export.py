@@ -21,7 +21,7 @@ from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden
                              get_door_vertical_geometry, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width,
                              cabinet_joue_dims, is_hinge_post, shelf_front_setback,
-                             HINGE_POST_DEPTH_MM, get_plinthe_groups,
+                             HINGE_POST_DEPTH_MM, get_plinthe_groups, feet_need_plinthe,
                              format_plinthe_labels)
 
 
@@ -654,7 +654,7 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
     if any(bool(c.get("has_feet", False)) for c in floor_cabs):
         foot_h = max(float(c.get("foot_height", 0.0) or 0.0) for c in floor_cabs)
         plinthe_groups = get_plinthe_groups(scene_cabinets)
-        if foot_h > 0.0 and plinthe_groups:
+        if feet_need_plinthe(foot_h) and plinthe_groups:
             plinthes_node = _add_group_node(meuble_node, "node_plinthes", "Plinthes")
             for group in plinthe_groups:
                 first = group["indices"][0]
