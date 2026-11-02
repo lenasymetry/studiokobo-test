@@ -1832,7 +1832,8 @@ def normalize_vertical_shelves(cabinet):
         vs['y_frame'] = 'inner'
 
 
-# Pieds : axe à 50 mm des bords du meuble (avant/arrière, gauche/droite).
+# Pieds d'angle : axe à 50 mm du bout de la traverse basse (côté montant) ET
+# à 50 mm de son bord avant / arrière : même écart des deux côtés de l'angle.
 FOOT_EDGE_OFFSET_MM = 50.0
 # Seuls les pieds de 20 mm se fixent par un trou dans la traverse basse.
 DRILLED_FOOT_HEIGHT_MM = 20.0
@@ -1842,17 +1843,22 @@ FOOT_HOLE_DIAM_STR = "⌀8/25"
 def foot_positions_mm(scene_cabinets, extra_feet=False, extra_rows=0):
     """Axes des pieds (x, y) en mm dans le repère de la scène (y = 0 à l'avant).
 
-    4 pieds aux coins à `FOOT_EDGE_OFFSET_MM` des bords, plus, au-delà de
-    1 m de large, `extra_rows` rangées intermédiaires (avant + arrière)
-    réparties régulièrement. Source unique pour la vue 3D et l'usinage."""
+    4 pieds aux coins, à `FOOT_EDGE_OFFSET_MM` du bout de la traverse basse
+    (le montant extérieur est ajouté) et de ses bords avant / arrière, plus,
+    au-delà de 1 m de large, `extra_rows` rangées intermédiaires (avant +
+    arrière) réparties régulièrement. Source unique pour la vue 3D et l'usinage."""
     if not scene_cabinets:
         return []
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
-    x0 = min(o[0] for o in origins)
-    x1 = max(o[0] + float(c['dims']['L_raw']) for o, c in zip(origins, scene_cabinets))
+    lefts = [o[0] for o in origins]
+    rights = [o[0] + float(c['dims']['L_raw']) for o, c in zip(origins, scene_cabinets)]
+    x0, x1 = min(lefts), max(rights)
     y0 = min(o[1] for o in origins)
     y1 = max(o[1] + float(c['dims']['W_raw']) for o, c in zip(origins, scene_cabinets))
-    xl, xr = x0 + FOOT_EDGE_OFFSET_MM, x1 - FOOT_EDGE_OFFSET_MM
+    # Épaisseur du montant extérieur gauche / droit (caisson en bout de meuble).
+    t_left = float(scene_cabinets[lefts.index(x0)]['dims'].get('t_lr_raw', 19.0))
+    t_right = float(scene_cabinets[rights.index(x1)]['dims'].get('t_lr_raw', 19.0))
+    xl, xr = x0 + t_left + FOOT_EDGE_OFFSET_MM, x1 - t_right - FOOT_EDGE_OFFSET_MM
     n_mid = int(extra_rows or 0) if (extra_feet and (x1 - x0) > 1000.0) else 0
     xs = [xl + (xr - xl) * k / (n_mid + 1) for k in range(n_mid + 2)]
     return [(x, y) for x in xs for y in (y0 + FOOT_EDGE_OFFSET_MM, y1 - FOOT_EDGE_OFFSET_MM)]
