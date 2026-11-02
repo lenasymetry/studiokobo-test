@@ -231,6 +231,8 @@ def _display_title(title: str) -> str:
                lambda m: f"Montant secondaire {m.group(1)} ({m.group(2)}) - face {m.group(3)}/2", t)
     t = re.sub(r"Montant Charnière (\d+) \((C\d+)\) - ([12])/2",
                lambda m: f"Montant de charnière {m.group(1)} ({m.group(2)}) - face {m.group(3)}/2", t)
+    t = re.sub(r"(Traverse Bas \(Tb\)) - ([12])/2",
+               lambda m: f"{m.group(1)} - face {m.group(2)}/2" + (" (dessous, pieds)" if m.group(2) == "2" else " (intérieure)"), t)
     t = re.sub(r"(Montant (?:Gauche|Droit) \(M[gd]\)) - ([12])/2",
                lambda m: f"{m.group(1)} - face {m.group(2)}/2" + (" (extérieure, joue)" if m.group(2) == "2" else ""), t)
     return t
@@ -271,6 +273,10 @@ def _triangles_for(title: str):
         return [("avant", False)]
     if "fond (panneau" in t or "panneau arriere" in t:
         return [("avant", False)]
+    # Traverse basse percée pour les pieds : face 2/2 = dessous, vue
+    # retournée en profondeur (l'avant est au bord 'arriere' de la feuille).
+    if "traverse bas" in t and "2/2" in t:
+        return [("arriere", True)]
     if "traverse bas" in t or "traverse haut" in t:
         return [("avant", True)]
     # Montants principaux habillés d'une joue : 1/2 = face intérieure,

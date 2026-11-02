@@ -1664,7 +1664,11 @@ def draw_machining_view_pro_final(panel_name, L, W, T, unit_str, project_info,
         })
     
     # Utiliser les dimensions originales pour les triangles (avant rotation)
-    if "traverse bas" in panel_lower:
+    if "traverse bas" in panel_lower and "2/2" in panel_lower:
+        # Face dessous (trous de pieds) : vue retournée, l'avant est au bord y=W.
+        draw_triangle(L_actual/2, W_actual, filled=True, orientation='up')
+
+    elif "traverse bas" in panel_lower:
         # Triangle noir au milieu du bord inférieur (y=0)
         draw_triangle(L_actual/2, 0, filled=True, orientation='down')
     
@@ -3326,7 +3330,7 @@ def draw_machining_view_pro_final(panel_name, L, W, T, unit_str, project_info,
         # Style identique aux cotations des tranches : ligne droite, non-cascade
         if "traverse" in panel_lower and face_holes_list:
             # Filtrer SEULEMENT les tourillons (trous de montants secondaires)
-            tourillon_holes = [h for h in face_holes_list if str(h.get('type', '')).lower() == 'tourillon']
+            tourillon_holes = [h for h in face_holes_list if str(h.get('type', '')).lower() in ('tourillon', 'pied')]
             
             if tourillon_holes:
                 # Extraire les positions X uniques des tourillons

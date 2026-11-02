@@ -1141,6 +1141,10 @@ def apply_face_hole_depths(panel_name, face_holes):
     out = []
     for h in face_holes or []:
         h = dict(h)
+        if h.get("type") == "pied":
+            # Trou de pied : ⌀8 profondeur 25, fixé par `foot_traverse_holes`.
+            out.append(h)
+            continue
         raw = str(h.get("diam_str", ""))
         m = _re.search(r"(\d+(?:[.,]\d+)?)", raw)
         diam = float(m.group(1).replace(",", ".")) if m else None
@@ -1826,6 +1830,56 @@ def normalize_vertical_shelves(cabinet):
         except (KeyError, TypeError, ValueError):
             pass
         vs['y_frame'] = 'inner'
+
+
+# Pieds : axe à 50 mm des bords du meuble (avant/arrière, gauche/droite).
+FOOT_EDGE_OFFSET_MM = 50.0
+# Seuls les pieds de 20 mm se fixent par un trou dans la traverse basse.
+DRILLED_FOOT_HEIGHT_MM = 20.0
+FOOT_HOLE_DIAM_STR = "⌀8/25"
+
+
+def foot_positions_mm(scene_cabinets, extra_feet=False, extra_rows=0):
+    """Axes des pieds (x, y) en mm dans le repère de la scène (y = 0 à l'avant).
+
+    4 pieds aux coins à `FOOT_EDGE_OFFSET_MM` des bords, plus, au-delà de
+    1 m de large, `extra_rows` rangées intermédiaires (avant + arrière)
+    réparties régulièrement. Source unique pour la vue 3D et l'usinage."""
+    if not scene_cabinets:
+        return []
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    x0 = min(o[0] for o in origins)
+    x1 = max(o[0] + float(c['dims']['L_raw']) for o, c in zip(origins, scene_cabinets))
+    y0 = min(o[1] for o in origins)
+    y1 = max(o[1] + float(c['dims']['W_raw']) for o, c in zip(origins, scene_cabinets))
+    xl, xr = x0 + FOOT_EDGE_OFFSET_MM, x1 - FOOT_EDGE_OFFSET_MM
+    n_mid = int(extra_rows or 0) if (extra_feet and (x1 - x0) > 1000.0) else 0
+    xs = [xl + (xr - xl) * k / (n_mid + 1) for k in range(n_mid + 2)]
+    return [(x, y) for x in xs for y in (y0 + FOOT_EDGE_OFFSET_MM, y1 - FOOT_EDGE_OFFSET_MM)]
+
+
+def foot_traverse_holes(scene_cabinets, cab_index, foot_height, extra_feet=False, extra_rows=0):
+    """Trous de pieds sous la traverse basse d'un caisson posé au sol, dans le
+    repère de sa feuille (x depuis le montant gauche, y depuis l'avant).
+    Uniquement pour les pieds de 20 mm ; un pied qui tombe sous un montant
+    (jonction de caissons) n'est pas percé dans la traverse."""
+    if abs(float(foot_height or 0.0) - DRILLED_FOOT_HEIGHT_MM) > 0.5:
+        return []
+    if not cabinet_rests_on_floor(scene_cabinets, cab_index):
+        return []
+    cab = scene_cabinets[cab_index]
+    ox, oy, _ = calculate_origins_recursively(scene_cabinets, 1.0)[cab_index]
+    dims = cab['dims']
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    L_trav = carcass_piece_dims(cab)['L_traverse']
+    W = float(dims['W_raw'])
+    holes = []
+    for fx, fy in foot_positions_mm(scene_cabinets, extra_feet, extra_rows):
+        x_rel = fx - ox - t_lr
+        y_rel = fy - oy
+        if 0.0 < x_rel < L_trav and 0.0 < y_rel < W:
+            holes.append({'type': 'pied', 'x': x_rel, 'y': y_rel, 'diam_str': FOOT_HOLE_DIAM_STR})
+    return holes
 
 
 def scene_floor_width_mm(scene_cabinets):

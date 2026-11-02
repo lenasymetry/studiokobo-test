@@ -74,6 +74,7 @@ from machining_logic import (
     column_filler_width,
     cabinet_rails,
     scene_floor_width_mm,
+    foot_positions_mm,
     normalize_vertical_shelves,
     default_extra_feet_rows,
     rail_axis_height,
@@ -4545,16 +4546,11 @@ with col2:
                                         zone_ids_to_hatch=new_zone_ids, color="rgba(200,100,0,0.7)", line_width=2, y_plane_offset=-0.01)
 
         if st.session_state.has_feet:
-            l_coords = [abs_origins[i][0] for i in range(len(scene))]; min_L = min(l_coords); max_L = max([abs_origins[i][0] + scene[i]['dims']['L_raw']*unit_factor for i in range(len(scene))])
-            min_W = min([abs_origins[i][1] for i in range(len(scene))]); max_W = max([abs_origins[i][1] + scene[i]['dims']['W_raw']*unit_factor for i in range(len(scene))])
             fh = st.session_state.foot_height * unit_factor
-            _x_l, _x_r = min_L + 0.05, max_L - 0.05
-            _n_mid = int(st.session_state.get('extra_feet_rows', 0) or 0) \
-                if (st.session_state.get('extra_feet') and (max_L - min_L) / unit_factor > 1000.0) else 0
-            _feet_x = [_x_l + (_x_r - _x_l) * k / (_n_mid + 1) for k in range(_n_mid + 2)]
-            for x in _feet_x:
-                for y in [min_W+0.05, max_W-0.05]:
-                    fig3d.add_trace(cylinder_mesh_for((x, y, -fh), fh, 0.02, color='#333', showlegend=False))
+            for fx, fy in foot_positions_mm(scene, st.session_state.get('extra_feet', False),
+                                            st.session_state.get('extra_feet_rows', 0)):
+                fig3d.add_trace(cylinder_mesh_for((fx * unit_factor, fy * unit_factor, -fh), fh, 20.0 * unit_factor,
+                                                  color='#333', showlegend=False))
 
     # Caméra fixée pour voir de face (côté intérieur du caisson)
     # eye=dict(x=0, y=-2, z=1.4) : voir depuis l'avant (y négatif = depuis l'avant)

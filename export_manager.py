@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import foot_traverse_holes, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1768,7 +1768,24 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             })
             
             if base_el.get('has_bottom_traverse', True):
-                plans.append(("Traverse Bas (Tb)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Bas", c_trav), traverse_face_holes_left + fond_trav_holes, tholes_longue, tholes_cote, None))
+                c_tb = debit_piece_chants(cab, "Traverse Bas", c_trav)
+                # Pieds de 20 mm : trous sous la traverse basse -> pièce usinée
+                # sur ses 2 faces. Face 2/2 = dessous, vue retournée en
+                # profondeur (l'avant passe au bord opposé de la feuille).
+                _scene_all = st.session_state.get('scene_cabinets', cabinets_to_process)
+                foot_holes = foot_traverse_holes(
+                    _scene_all, cab_idx,
+                    st.session_state.get('foot_height', 0.0) if st.session_state.get('has_feet', False) else 0.0,
+                    st.session_state.get('extra_feet', False), st.session_state.get('extra_feet_rows', 0),
+                ) if 0 <= cab_idx < len(_scene_all) else []
+                if foot_holes:
+                    c_tb_22 = dict(c_tb, **{"Chant Avant": c_tb.get("Chant Arrière", False),
+                                            "Chant Arrière": c_tb.get("Chant Avant", False)})
+                    holes_22 = [dict(h, y=W_trav - h['y']) for h in foot_holes]
+                    plans.append(("Traverse Bas (Tb) - 1/2", L_trav, W_trav, t_tb, c_tb, traverse_face_holes_left + fond_trav_holes, tholes_longue, tholes_cote, None))
+                    plans.append(("Traverse Bas (Tb) - 2/2", L_trav, W_trav, t_tb, c_tb_22, holes_22, [], [], None))
+                else:
+                    plans.append(("Traverse Bas (Tb)", L_trav, W_trav, t_tb, c_tb, traverse_face_holes_left + fond_trav_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_top_traverse', True):
                 plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Haut", c_trav), traverse_face_holes_right + fond_trav_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_left_upright', True):
