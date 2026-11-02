@@ -74,6 +74,7 @@ from machining_logic import (
     column_filler_width,
     cabinet_rails,
     scene_floor_width_mm,
+    normalize_vertical_shelves,
     default_extra_feet_rows,
     rail_axis_height,
     RAIL_SECTION_H_MM,
@@ -98,6 +99,8 @@ st.set_page_config(
 )
 
 initialize_session_state()
+for _cab in st.session_state.get('scene_cabinets', []) or []:
+    normalize_vertical_shelves(_cab)
 
 
 def _sync_door_spans():
@@ -1236,6 +1239,27 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
                     "Usinage": usinage_divider
                 })
             
+        # 5 bis. Étagères verticales : entre deux planches horizontales, devant le
+        # fond encastré (profondeur - 19, comme les montants secondaires).
+        for vs_idx, vs in enumerate(cabinet.get('vertical_shelves', []) or [], start=1):
+            vs_h = max(0.0, float(vs.get('top_y', 0.0)) - float(vs.get('bottom_y', 0.0)))
+            if vs_h <= 0.0:
+                continue
+            # Chant avant seul : les tranches haut/bas sont contre les planches, l'arrière contre le fond.
+            cav, car, cg, cd = get_automatic_edge_banding("Etagère")
+            all_parts.append({
+                "Lettre": f"C{i}-EV{vs_idx}",
+                "Référence Pièce": f"Etagère Verticale {vs_idx} (C{i})",
+                "Matière": vs.get('material', cabinet.get('material_body', 'Matière Corps')),
+                "Caisson": f"C{i}",
+                "Qté": 1,
+                "Longueur (mm)": vs_h,
+                "Largeur (mm)": W_inner,
+                "Epaisseur": float(vs.get('thickness', 19.0)),
+                "Chant Avant": cav, "Chant Arrière": car, "Chant Gauche": cg, "Chant Droit": cd,
+                "Usinage": "",
+            })
+
         # 6. Tringles : accessoire sans usinage, longueur = largeur de la zone.
         for _rk, _rz in enumerate(cabinet_rails(cabinet), start=1):
             all_parts.append({
@@ -1287,7 +1311,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
 
 def get_cached_project_parts():
     """Calcule la feuille de debit seulement quand la scene change."""
-    PARTS_CACHE_SCHEMA_VERSION = "v7_top_joue_shared_side_by_side"
+    PARTS_CACHE_SCHEMA_VERSION = "v8_vertical_shelves"
     scene_json = _scene_to_json(st.session_state['scene_cabinets'])
     parts_context = {
         "has_feet": bool(st.session_state.get('has_feet', False)),
@@ -3278,43 +3302,14 @@ with col1:
                                 )
                                 # Pendant la pose, on cale Y sur la zone sélectionnée (prévisualisation)
                                 zone = all_zones_2d_sel[zone_index]
-                                # S'assurer que les valeurs sont dans les limites valides avec clamping
-                                dims = selected_cab['dims']
-                                zone_y_min = float(zone['y_min'])
-                                zone_y_max = float(zone['y_max'])
-                                
-                                # Calculer l'espace disponible entre les planches horizontales en tenant compte des épaisseurs
-                                vs_thickness = float(p.get('thickness', 19.0))
-                                position_x = float(p.get('position_x', (zone['x_min'] + zone['x_max']) / 2.0))
-                                available_spaces, blocking_shelves = calculate_available_space_between_horizontal_shelves(
-                                    selected_cab, zone['x_min'], zone['x_max'], position_x, vs_thickness
-                                )
-                                
-                                # Trouver l'espace disponible qui correspond à la zone Y
-                                matching_space = None
-                                for space in available_spaces:
-                                    if space['y_min'] <= zone_y_min and space['y_max'] >= zone_y_max:
-                                        matching_space = space
-                                        break
-                                
-                                if matching_space:
-                                    # Utiliser les faces intérieures des planches comme limites
-                                    bottom_y_min = max(0.0, matching_space['y_min_face'])
-                                    bottom_y_max = min(float(dims['H_raw'] - 50), matching_space['y_max_face'])
-                                    p['bottom_y'] = max(bottom_y_min, min(zone_y_min, bottom_y_max))
-                                    top_y_min = float(p['bottom_y'] + 50)
-                                    top_y_max = min(float(dims['H_raw']), matching_space['y_max_face'])
-                                    p['top_y'] = max(top_y_min, min(zone_y_max, top_y_max))
-                                else:
-                                    # Fallback : utiliser les limites de la zone avec clamping
-                                    bottom_y_min = 0.0
-                                    bottom_y_max = float(dims['H_raw'] - 50)
-                                    p['bottom_y'] = max(bottom_y_min, min(zone_y_min, bottom_y_max))
-                                    top_y_min = float(p['bottom_y'] + 50)
-                                    top_y_max = float(dims['H_raw'])
-                                    p['top_y'] = max(top_y_min, min(zone_y_max, top_y_max))
-                                
-                                st.info(f"Hauteur Y : {p['bottom_y']:.0f}mm à {p['top_y']:.0f}mm (déterminée par la zone pendant la pose).")
+                                # Les zones sont cotées depuis le bas du caisson ; l'étagère verticale
+                                # depuis le dessus de la traverse basse : on retire son épaisseur pour
+                                # la caler exactement entre les deux planches qui bornent la zone.
+                                _t_tb = float(selected_cab['dims'].get('t_tb_raw', 19.0))
+                                p['bottom_y'] = max(0.0, float(zone['y_min']) - _t_tb)
+                                p['top_y'] = max(p['bottom_y'], float(zone['y_max']) - _t_tb)
+                                p['y_frame'] = 'inner'
+                                st.info(f"Hauteur Y : {p['bottom_y']:.0f} à {p['top_y']:.0f} mm depuis la traverse basse, soit {p['top_y'] - p['bottom_y']:.0f} mm (calée sur la zone).")
                             else:
                                 p['zone_id'] = None
                             
@@ -3958,8 +3953,9 @@ with col2:
                     
                     # Étagère verticale : position X = o[0] + vs_x_mm (en unités)
                     # L'étagère va de (vs_x_mm - vs_th_mm/2) à (vs_x_mm + vs_th_mm/2) en mm
+                    # Profondeur : s'arrête devant le fond encastré, comme les montants secondaires.
                     fig3d.add_trace(cuboid_mesh_for(
-                        vs_th, W, vs_height,
+                        vs_th, W - tb, vs_height,
                         (o[0] + vs_x - vs_th/2, o[1], vs_bottom_z),
                         color=vs_color,
                         opacity=vs_opacity,

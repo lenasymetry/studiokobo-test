@@ -402,7 +402,7 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
             add_panel(cab_node,
                       f"Étagère Verticale {j+1} – {cab_label}",
                       ox + vs_x - vs_th / 2, oy, oz + tt + vs_bot,
-                      vs_th, W, vs_h)
+                      vs_th, W - tb, vs_h)
 
         # ── Étagères horizontales ───────────────────────────────────────
         for j, s in enumerate(cabinet.get("shelves", [])):

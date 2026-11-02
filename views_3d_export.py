@@ -800,7 +800,7 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
             roy,
             roz + tt + vs_bottom,
             vs_th,
-            W,
+            W - tb,
             vs_h,
             skip=bf_skip,
         )

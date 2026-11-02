@@ -1737,6 +1737,29 @@ RAIL_SECTION_H_MM = 30.0
 RAIL_SECTION_D_MM = 15.0
 
 
+def normalize_vertical_shelves(cabinet):
+    """Recale les étagères verticales dans le repère « depuis la traverse basse ».
+
+    Les anciennes poses copiaient les cotes de la zone (mesurées depuis le bas
+    du caisson) : l'étagère se retrouvait une épaisseur de traverse trop haut,
+    engagée dans la planche du dessus. Signature : bottom_y/top_y égaux à
+    stored_zone_coords. Les étagères recalées sont marquées `y_frame='inner'`.
+    """
+    t_tb = float((cabinet.get('dims', {}) or {}).get('t_tb_raw', 19.0))
+    for vs in cabinet.get('vertical_shelves', []) or []:
+        if vs.get('y_frame') == 'inner':
+            continue
+        z = vs.get('stored_zone_coords') or {}
+        try:
+            if (abs(float(vs.get('bottom_y')) - float(z['y_min'])) < 0.5
+                    and abs(float(vs.get('top_y')) - float(z['y_max'])) < 0.5):
+                vs['bottom_y'] = max(0.0, float(vs['bottom_y']) - t_tb)
+                vs['top_y'] = max(vs['bottom_y'], float(vs['top_y']) - t_tb)
+        except (KeyError, TypeError, ValueError):
+            pass
+        vs['y_frame'] = 'inner'
+
+
 def scene_floor_width_mm(scene_cabinets):
     """Largeur totale (mm) du meuble, de l'extrémité gauche à la droite."""
     if not scene_cabinets:
