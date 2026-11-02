@@ -368,6 +368,7 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
 
         while line_number <= 15:
             ws.cell(row=current_row, column=1, value=line_number).font = font_bold_std
+            ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row, end_column=3)
             for c_idx in range(1, 12):
                 cell = ws.cell(row=current_row, column=c_idx)
                 cell.border = border_thin
