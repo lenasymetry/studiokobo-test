@@ -128,6 +128,19 @@ def _scene_to_json(scene):
     return json.dumps(scene, sort_keys=True, ensure_ascii=False, default=str)
 
 
+def _exports_state_json(scene):
+    """Empreinte de ce qui change les livrables : la scène ET les options
+    globales des pieds (hauteur, pieds intermédiaires), qui modifient les
+    usinages sans toucher aux caissons."""
+    return json.dumps({
+        "scene": json.loads(_scene_to_json(scene)),
+        "has_feet": bool(st.session_state.get('has_feet', False)),
+        "foot_height": float(st.session_state.get('foot_height', 0.0) or 0.0),
+        "extra_feet": bool(st.session_state.get('extra_feet', False)),
+        "extra_feet_rows": int(st.session_state.get('extra_feet_rows', 0) or 0),
+    }, sort_keys=True, ensure_ascii=False)
+
+
 def _normalize_materials_list(materials):
     if not materials:
         return []
@@ -157,7 +170,7 @@ def _generate_and_store_hole_counts():
         include_hole_counts=True,
     )
     st.session_state['hole_counts_rows'] = hole_counts
-    st.session_state['hole_counts_scene_json'] = _scene_to_json(scene)
+    st.session_state['hole_counts_scene_json'] = _exports_state_json(scene)
 
 
 def _generate_and_store_exports(all_parts, selected_materials=None):
@@ -395,7 +408,7 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
     st.session_state['exports_3d_error'] = views3d_error
     st.session_state['exports_xls_error'] = xls_error
 
-    st.session_state['exports_scene_json'] = _scene_to_json(scene)
+    st.session_state['exports_scene_json'] = _exports_state_json(scene)
     st.session_state['exports_material_filter_key'] = material_filter_key
 
 
@@ -437,7 +450,7 @@ def _render_exports(all_parts):
         if str(part.get("Matière", "")).strip()
     })
 
-    current_scene_json = _scene_to_json(st.session_state['scene_cabinets'])
+    current_scene_json = _exports_state_json(st.session_state['scene_cabinets'])
 
     st.markdown(
         """
