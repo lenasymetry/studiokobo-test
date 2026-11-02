@@ -1248,7 +1248,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
                     "Qté": 1,
                     "Longueur (mm)": fixed_back_h,
                     "Largeur (mm)": drawer_back_width,
-                    "Epaisseur": float(drp.get('inner_thickness', 19.0)),
+                    "Epaisseur": float(drp.get('inner_thickness', 16.0)),
                     "Chant Avant": cav, "Chant Arrière": car, "Chant Gauche": cg, "Chant Droit": cd,
                     "Usinage": usinage_dos
                 })
@@ -1266,7 +1266,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
                     "Qté": 1,
                     "Longueur (mm)": drawer_bottom_width,
                     "Largeur (mm)": drawer_bottom_depth,
-                    "Epaisseur": float(drp.get('inner_thickness', 19.0)),
+                    "Epaisseur": float(drp.get('inner_thickness', 16.0)),
                     "Chant Avant": cav, "Chant Arrière": car, "Chant Gauche": cg, "Chant Droit": cd,
                     "Usinage": usinage_fond
                 })
@@ -2494,7 +2494,7 @@ with col1:
                         )
                         p['inner_thickness'] = st.number_input(
                             "Épaisseur Intérieur (dos/fond) (mm)",
-                            value=float(p.get('inner_thickness', 19.0)),
+                            value=float(p.get('inner_thickness', 16.0)),
                             key=f"pending_drawer_inner_thickness_{idx}",
                             format="%.0f",
                             step=1.0,
@@ -2731,7 +2731,7 @@ with col1:
                                 )
                                 st.number_input(
                                     "Épaisseur Intérieur (dos/fond) (mm)",
-                                    value=d.get('inner_thickness', 19.0),
+                                    value=d.get('inner_thickness', 16.0),
                                     key=f"drawer_inner_thickness_{idx}_{i}",
                                     on_change=lambda x=i: update_drawer_prop(x, 'inner_thickness'),
                                     format="%.0f",

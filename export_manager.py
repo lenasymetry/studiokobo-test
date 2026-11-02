@@ -2520,7 +2520,7 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                 dr_H = drp.get('drawer_face_H_raw', 150.0)
                 tech_type = drp.get('drawer_tech_type', 'K')
                 dr_thickness = drp.get('drawer_face_thickness', 19.0)
-                inner_thickness = float(drp.get('inner_thickness', 19.0))
+                inner_thickness = float(drp.get('inner_thickness', 16.0))
                 cutout = None
                 if drp.get('drawer_handle_type') == 'integrated_cutout':
                     cutout = (

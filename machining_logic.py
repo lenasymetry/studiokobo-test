@@ -1387,7 +1387,7 @@ def drawer_piece_dims(cabinet, drp, zones):
         'box_x0_on_face': box_x0 - face_x0, 'box_x1_on_face': box_x1 - face_x0,
         'back_w': back_w, 'back_h': float(back_h),
         'bottom_w': bottom_w, 'bottom_d': bottom_d,
-        'inner_t': float(drp.get('inner_thickness', 19.0)),
+        'inner_t': float(drp.get('inner_thickness', 16.0)),
         'nl': nl, 'load': legrabox_load(drp, nl) if nl is not None else None,
     }
 
