@@ -5,7 +5,7 @@ from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from drawing_interface import draw_machining_view_pro_final
 from project_definitions import get_legrabox_specs
 
@@ -1579,6 +1579,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     if s_type == 'fixe':
                         fh_shelf = _shelf_face_holes_for_partial_dividers(
                             cab, s, L_trav, t_lr, t_tb, W_inner + t_fb, t_fb, h_side - 2.0 * t_tb)
+                        # Étagères verticales posées dessus / suspendues dessous.
+                        fh_shelf = fh_shelf + vertical_shelf_fixed_shelf_holes(cab, s, s_setback)
                     # Créer une clé unique pour regrouper les étagères identiques
                     # Utiliser les dimensions et les trous pour identifier les étagères identiques
                     shelf_key = (round(L_shelf, 1), round(W_shelf, 1), round(s_th, 1), s_type,
@@ -1730,6 +1732,10 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             # Un montant partiel ne perce que la traverse qu'il touche.
             traverse_face_holes_left, traverse_face_holes_right = _divider_traverse_holes(
                 cab, L_trav, t_lr, t_tb, W_inner + t_fb, t_fb, h_side - 2.0 * t_tb)
+            # Étagères verticales qui reposent sur la traverse basse / touchent la haute.
+            _vs_bottom, _vs_top = vertical_shelf_traverse_holes(cab)
+            traverse_face_holes_left = traverse_face_holes_left + _vs_bottom
+            traverse_face_holes_right = traverse_face_holes_right + _vs_top
             
             # Panneau arrière
             holes_fond = calculate_back_panel_holes(W_back, H_back, cab)
@@ -1981,6 +1987,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     # TOUJOURS générer 2 plans (1/2 et 2/2) pour chaque montant secondaire
                     plans.append((f"{div_label} (C{cab_idx}) - 1/2", div_w, div_h, div_th, c_div_12, div_holes_left, div_tranche_holes, [], None))
                     plans.append((f"{div_label} (C{cab_idx}) - 2/2", div_w, div_h, div_th, c_div_22, div_holes_right, div_tranche_holes, [], None))
+
+            # --- ÉTAGÈRES VERTICALES : tourillons dans les tranches haut/bas ---
+            plans.extend(vertical_shelf_plans(cab, cab_idx))
 
             dxf_expected_count += len(plans)
             for item in plans:
@@ -2336,6 +2345,9 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         
         traverse_face_holes_left, traverse_face_holes_right = _divider_traverse_holes(
             cab, L_trav, t_lr, t_tb, W_raw, t_fb, h_side - 2.0 * t_tb)
+        _vs_bottom, _vs_top = vertical_shelf_traverse_holes(cab)
+        traverse_face_holes_left = traverse_face_holes_left + _vs_bottom
+        traverse_face_holes_right = traverse_face_holes_right + _vs_top
         
         # Ajouter les trous pour étagères et tiroirs sur les montants
         base_el = cab.get('base_elements', {
@@ -2705,6 +2717,14 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                     div_holes_right, div_tranche_holes, [], None, False
                 )
                 all_figures.append((f"Montant Secondaire {div_idx+1} (C{cab_idx}) - 2/2", fig_div2))
+
+        # Étagères verticales
+        for vs_title, vs_L, vs_W, vs_T, vs_ch, vs_fh, vs_tl, vs_tc, vs_cut in vertical_shelf_plans(cab, cab_idx):
+            fig_vs = draw_machining_view_pro_final(
+                vs_title, vs_L, vs_W, vs_T, st.session_state.unit_select, proj, vs_ch,
+                vs_fh, vs_tl, vs_tc, vs_cut, False
+            )
+            all_figures.append((vs_title, fig_vs))
         
         # Étagères
         if shelves_list:
@@ -2721,14 +2741,16 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
                         s_W = s.get('W_shelf', W_raw)
                     s_T = s.get('thickness', 19.0)
                     th_shelf = []
-                    shelf_key = (s_L, s_W, s_T, tuple(map(tuple, th_shelf)))
+                    fh_vs = vertical_shelf_fixed_shelf_holes(cab, s, shelf_front_setback(cab, s))
+                    shelf_key = (s_L, s_W, s_T, tuple(map(tuple, th_shelf)),
+                                 tuple(sorted((round(h['x'], 1), round(h['y'], 1), h['type']) for h in fh_vs)))
                     if shelf_key not in shelf_groups:
                         cav_e, car_e, cg_e, cd_e = get_automatic_edge_banding_export("Étagère")
                         c_etag = {"Chant Avant": cav_e, "Chant Arrière": car_e, "Chant Gauche": cg_e, "Chant Droit": cd_e}
                         shelf_groups[shelf_key] = {
                             'title': f"Étagère (C{cab_idx})",
                             'L': s_L, 'W': s_W, 'T': s_T,
-                            'ch': c_etag, 'fh': [], 't_long_h': [], 't_cote_h': th_shelf,
+                            'ch': c_etag, 'fh': fh_vs, 't_long_h': [], 't_cote_h': th_shelf,
                             'cut': None, 'quantity': 0
                         }
                     shelf_groups[shelf_key]['quantity'] += 1

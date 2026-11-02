@@ -1257,7 +1257,8 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
                 "Largeur (mm)": W_inner,
                 "Epaisseur": float(vs.get('thickness', 19.0)),
                 "Chant Avant": cav, "Chant Arrière": car, "Chant Gauche": cg, "Chant Droit": cd,
-                "Usinage": "",
+                # Tourillons dans les tranches haute et basse.
+                "Usinage": "CF plan",
             })
 
         # 6. Tringles : accessoire sans usinage, longueur = largeur de la zone.

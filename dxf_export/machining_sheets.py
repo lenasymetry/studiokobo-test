@@ -283,6 +283,9 @@ def _triangles_for(title: str):
         return [("avant", False), ("droit", True)]
     if "montant gauche" in t or ("montant" in t and "2/2" in t):
         return [("avant", False), ("gauche", True)]
+    # Étagère verticale : longueur = hauteur (x = 0 = bas), y = 0 = avant.
+    if "etagere verticale" in t:
+        return [("gauche", False), ("avant", True)]
     if "etagere" in t:
         return [("avant", True)]
     if "fond" in t and "tiroir" in t:

@@ -1691,6 +1691,9 @@ def draw_machining_view_pro_final(panel_name, L, W, T, unit_str, project_info,
     if is_shelf:
         # Triangle noir au centre du bord inférieur (y=0) - pour toutes les étagères (y compris groupées)
         draw_triangle(L_actual/2, 0, filled=True, orientation='down')
+        if "verticale" in panel_normalized:
+            # Étagère verticale : longueur = hauteur, bas du meuble au bord gauche (x=0).
+            draw_triangle(0, W_actual/2, filled=False, orientation='left')
     
     elif "fond" in panel_lower and "tiroir" in panel_lower:
         # Triangle noir au milieu du bord inférieur (y=0)

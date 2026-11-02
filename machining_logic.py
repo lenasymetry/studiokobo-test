@@ -1035,26 +1035,94 @@ def get_mounting_holes_for_zone_element(element, zone, cabinet):
     # Stub pour l'instant
     return []
 
-def get_vertical_shelf_tranche_holes(W_mont, vs_th):
-    """Calcule les trous sur les tranches (haut et bas) d'une étagère verticale."""
+def vertical_shelf_span(vs):
+    """(bas, haut) d'une étagère verticale, en mm depuis le dessus de la traverse basse."""
+    bottom = max(0.0, float(vs.get('bottom_y', 0.0) or 0.0))
+    top = max(bottom, float(vs.get('top_y', 0.0) or 0.0))
+    return bottom, top
+
+
+def get_vertical_shelf_tranche_holes(depth, vs_th):
+    """Tourillons ⌀8 dans les tranches haute et basse d'une étagère verticale.
+
+    Feuille : longueur (x) = hauteur de l'étagère, largeur (y) = profondeur
+    depuis l'avant. Mêmes positions que les tourillons des planches qui la
+    reçoivent (`vertical_shelf_plank_holes`), pour que l'assemblage tombe juste.
+    """
+    _, ys_dowel = calculate_hole_positions(depth)
+    return [{'type': 'tourillon', 'x': vs_th / 2.0, 'y': y, 'diam_str': "⌀8/22"} for y in ys_dowel]
+
+
+def vertical_shelf_plank_holes(cabinet, vs, x_start, y_offset=0.0):
+    """Perçages de face d'une planche (traverse ou étagère fixe) qui reçoit une
+    étagère verticale : tourillons ⌀8 + vis ⌀3 intercalées, dans l'axe de
+    l'étagère. `x_start` = abscisse caisson du bord gauche de la planche ;
+    `y_offset` = recul de l'avant de la planche par rapport à l'avant du caisson."""
+    depth = carcass_piece_dims(cabinet)['W_inner']
+    ys_vis, ys_dowel = calculate_hole_positions(depth)
+    x_rel = float(vs.get('position_x', 0.0)) - float(x_start)
     holes = []
-    # Trous de tourillons : aux 2 extrémités à 25mm des DEUX bords
-    # Premier tourillon à 25mm du bord bas
-    holes.append({'type': 'tourillon', 'x': vs_th/2, 'y': 25.0, 'diam_str': "⌀8/22"})
-    # Dernier tourillon à 25mm du bord haut
-    holes.append({'type': 'tourillon', 'x': vs_th/2, 'y': W_mont - 25.0, 'diam_str': "⌀8/22"})
-    
-    # Trous intermédiaires si nécessaire (espacement de 100mm entre les tourillons)
-    # Calculer le nombre de trous intermédiaires
-    available_space = W_mont - 50.0  # Espace entre les deux tourillons aux extrémités
-    if available_space > 100.0:
-        num_intermediate = int((available_space - 25.0) / 100.0)  # Nombre de trous intermédiaires
-        for i in range(1, num_intermediate + 1):
-            y_pos = 25.0 + (i * 100.0)
-            if y_pos < W_mont - 25.0:  # S'assurer qu'on ne dépasse pas le dernier tourillon
-                holes.append({'type': 'tourillon', 'x': vs_th/2, 'y': y_pos, 'diam_str': "⌀8/22"})
-    
+    for t, ys, d in (('tourillon', ys_dowel, "⌀8/10"), ('vis', ys_vis, "⌀3")):
+        for y in ys:
+            y_rel = float(y) - float(y_offset)
+            if y_rel > 0.0:
+                holes.append({'type': t, 'x': x_rel, 'y': y_rel, 'diam_str': d})
     return holes
+
+
+def vertical_shelf_traverse_holes(cabinet):
+    """(trous traverse basse, trous traverse haute) pour les étagères verticales
+    qui reposent sur la traverse basse ou montent jusqu'à la traverse haute."""
+    dims = cabinet.get('dims', {}) or {}
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    interior_h = float(dims.get('H_raw', 0.0)) - 2.0 * float(dims.get('t_tb_raw', 19.0))
+    bottom_holes, top_holes = [], []
+    for vs in cabinet.get('vertical_shelves', []) or []:
+        bottom, top = vertical_shelf_span(vs)
+        if bottom <= 0.5:
+            bottom_holes.extend(vertical_shelf_plank_holes(cabinet, vs, t_lr))
+        if top >= interior_h - 0.5:
+            top_holes.extend(vertical_shelf_plank_holes(cabinet, vs, t_lr))
+    return bottom_holes, top_holes
+
+
+def vertical_shelf_fixed_shelf_holes(cabinet, shelf, setback=0.0):
+    """Perçages de face d'une étagère FIXE pour les étagères verticales posées
+    dessus ou suspendues dessous (une étagère mobile ne peut pas les recevoir)."""
+    if shelf.get('shelf_type', 'mobile') != 'fixe':
+        return []
+    t_lr = float((cabinet.get('dims', {}) or {}).get('t_lr_raw', 19.0))
+    s_bottom = float(shelf.get('height', 0.0))
+    s_top = s_bottom + float(shelf.get('thickness', 19.0))
+    x0 = shelf.get('stored_shelf_x_start_mm')
+    w = shelf.get('stored_shelf_width_mm')
+    x_min = float(x0) if x0 is not None else t_lr
+    x_max = x_min + float(w) if (x0 is not None and w is not None) else float('inf')
+    holes = []
+    for vs in cabinet.get('vertical_shelves', []) or []:
+        if not (x_min - 0.5 <= float(vs.get('position_x', 0.0)) <= x_max + 0.5):
+            continue
+        bottom, top = vertical_shelf_span(vs)
+        if abs(bottom - s_top) <= 1.0 or abs(top - s_bottom) <= 1.0:
+            holes.extend(vertical_shelf_plank_holes(cabinet, vs, x_min, setback))
+    return holes
+
+
+def vertical_shelf_plans(cabinet, cab_idx):
+    """Feuilles d'usinage des étagères verticales : (titre, L = hauteur,
+    W = profondeur, épaisseur, chants, trous de face, tranches longues,
+    tranches côtés = haut/bas, découpe)."""
+    depth = carcass_piece_dims(cabinet)['W_inner']
+    chants = {"Chant Avant": True, "Chant Arrière": False, "Chant Gauche": False, "Chant Droit": False}
+    plans = []
+    for k, vs in enumerate(cabinet.get('vertical_shelves', []) or [], start=1):
+        bottom, top = vertical_shelf_span(vs)
+        if top - bottom <= 0.0:
+            continue
+        th = float(vs.get('thickness', 19.0))
+        plans.append((f"Etagère Verticale {k} (C{cab_idx})", top - bottom, depth, th, dict(chants),
+                      [], [], get_vertical_shelf_tranche_holes(depth, th), None))
+    return plans
 
 
 def apply_face_hole_depths(panel_name, face_holes):
