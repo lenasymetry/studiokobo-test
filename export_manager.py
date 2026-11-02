@@ -822,9 +822,10 @@ def _build_door_face_holes(door_width, hinge_y_positions, hinge_side):
 
     holes = []
     for y in hinge_y_positions:
-        holes.append({'type': 'tourillon', 'x': cup_x, 'y': y, 'diam_str': "⌀35"})
-        holes.append({'type': 'vis', 'x': screw_x, 'y': y + 22.5, 'diam_str': "⌀8"})
-        holes.append({'type': 'vis', 'x': screw_x, 'y': y - 22.5, 'diam_str': "⌀8"})
+        # 'hinge' : les 3 trous forment une charnière (Nomenclature), ni vis ni tourillon.
+        holes.append({'type': 'tourillon', 'x': cup_x, 'y': y, 'diam_str': "⌀35", 'hinge': 'cup'})
+        holes.append({'type': 'vis', 'x': screw_x, 'y': y + 22.5, 'diam_str': "⌀8", 'hinge': 'screw'})
+        holes.append({'type': 'vis', 'x': screw_x, 'y': y - 22.5, 'diam_str': "⌀8", 'hinge': 'screw'})
     return holes
 
 
@@ -2310,8 +2311,10 @@ def get_all_machining_plans_figures(cabinets_to_process, indices_to_process,
         except Exception:
             qty = 1
 
-        n_vis = sum(1 for h in holes if isinstance(h, dict) and h.get("type") == "vis")
-        n_tour = sum(1 for h in holes if isinstance(h, dict) and h.get("type") == "tourillon")
+        # Trous de charnière (cuvette + 2 vis de la porte) : comptés comme charnière.
+        holes = [h for h in holes if isinstance(h, dict) and not h.get("hinge")]
+        n_vis = sum(1 for h in holes if h.get("type") == "vis")
+        n_tour = sum(1 for h in holes if h.get("type") == "tourillon")
         hole_rows.append({"scene": panel_name,
                           "vis": n_vis * qty,
                           "tourillon": n_tour * qty})

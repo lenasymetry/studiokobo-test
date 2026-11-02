@@ -214,6 +214,9 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
     rb_ok = False
     views3d_error = None
     xls_error = None
+    sheet_plans = None
+    nomenclature_pdf_data = None
+    nomenclature_error = None
 
     # Export DXF : 1 présentation (layout A3) par pièce — mêmes données de
     # pièces et de perçages que les feuilles d'usinage du site.
@@ -313,6 +316,23 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
             dwg_ok = False
             dwg_filename = None
 
+    # Nomenclature : quincaillerie comptée sur les feuilles d'usinage du DXF.
+    try:
+        from export_manager import generate_stacked_html_plans
+        from nomenclature_export import nomenclature_lines, generate_nomenclature_pdf
+
+        if not isinstance(sheet_plans, list):
+            sheet_plans, _ = generate_stacked_html_plans(scene, indices, output_format="plans")
+        nomenclature_pdf_data = generate_nomenclature_pdf(
+            nomenclature_lines(scene, sheet_plans if isinstance(sheet_plans, list) else []),
+            project_name=st.session_state.get("project_name", ""),
+            client=st.session_state.get("client", ""),
+            date_str=datetime.date.today().strftime("%d/%m/%Y"),
+        )
+    except Exception as exc:
+        nomenclature_error = str(exc)
+        nomenclature_pdf_data = None
+
     try:
         from excel_export import create_styled_excel
 
@@ -407,12 +427,15 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
     st.session_state['exports_rb_ok'] = rb_ok
     st.session_state['exports_3d_error'] = views3d_error
     st.session_state['exports_xls_error'] = xls_error
+    st.session_state['exports_nomenclature_data'] = nomenclature_pdf_data
+    st.session_state['exports_nomenclature_error'] = nomenclature_error
 
     st.session_state['exports_scene_json'] = _exports_state_json(scene)
     st.session_state['exports_material_filter_key'] = material_filter_key
 
 
-def _build_deliverables_archive(project_name, xls_data, dxf_data, dxf_filename=None, selected_materials=None):
+def _build_deliverables_archive(project_name, xls_data, dxf_data, dxf_filename=None, selected_materials=None,
+                                nomenclature_data=None):
     """Construit une archive ZIP avec les livrables principaux (Excel + DXF)."""
     if not xls_data or not dxf_data:
         return None, None
@@ -433,6 +456,8 @@ def _build_deliverables_archive(project_name, xls_data, dxf_data, dxf_filename=N
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(xls_name, xls_data)
         zf.writestr(dxf_name, dxf_data)
+        if nomenclature_data:
+            zf.writestr(f"Nomenclature_{safe_project}.pdf", nomenclature_data)
 
     return buffer.getvalue(), zip_name
 
@@ -616,6 +641,7 @@ def _render_exports(all_parts):
     views3d_pdf_ok   = st.session_state.get('exports_3d_pdf_ok', False)
     rb_data = st.session_state.get('exports_rb_data')
     rb_ok   = st.session_state.get('exports_rb_ok', False)
+    nomenclature_data = st.session_state.get('exports_nomenclature_data')
     deliverables_zip_data = None
     deliverables_zip_name = None
     if xls_data and dwg_ok and dwg_data:
@@ -625,6 +651,7 @@ def _render_exports(all_parts):
         zip_key = (
             xls_data, dwg_data, dwg_filename,
             st.session_state.project_name, selected_materials_key,
+            nomenclature_data,
         )
         cached_zip = st.session_state.get('exports_zip_cache')
         if not cached_zip or cached_zip[0] != zip_key:
@@ -634,6 +661,7 @@ def _render_exports(all_parts):
                 dwg_data,
                 dxf_filename=dwg_filename,
                 selected_materials=selected_materials_for_generation,
+                nomenclature_data=nomenclature_data,
             ))
             st.session_state['exports_zip_cache'] = cached_zip
         _, deliverables_zip_data, deliverables_zip_name = cached_zip
@@ -662,7 +690,7 @@ def _render_exports(all_parts):
             if not (dwg_ok and dwg_data):
                 st.caption("DXF indisponible: vérifiez le message d'erreur de l'export DXF ci-dessous.")
 
-        dl_col2, dl_col3, dl_col4 = st.columns([1, 1, 1], gap="small")
+        dl_col2, dl_col3, dl_col4, dl_col5 = st.columns([1, 1, 1, 1], gap="small")
         with dl_col2:
             if xls_data:
                 st.download_button(
@@ -712,6 +740,21 @@ def _render_exports(all_parts):
                     )
                 else:
                     st.warning("⚠️ Export SketchUp portes entre-ouvertes indisponible.")
+
+        with dl_col5:
+            if nomenclature_data:
+                st.download_button(
+                    "🔩 Nomenclature (.pdf)",
+                    nomenclature_data,
+                    f"Nomenclature_{st.session_state.project_name.replace(' ', '_')}.pdf",
+                    "application/pdf",
+                    use_container_width=True,
+                )
+            else:
+                st.warning("⚠️ Nomenclature indisponible.")
+                nom_err = st.session_state.get('exports_nomenclature_error')
+                if nom_err:
+                    st.caption(nom_err)
 
         # ── Vues 3D cotées ─────────────────────────────────────────────
         st.divider()
@@ -1274,21 +1317,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
                 # Tourillons dans les tranches haute et basse.
                 "Usinage": "CF plan",
             })
-
-        # 6. Tringles : accessoire sans usinage, longueur = largeur de la zone.
-        for _rk, _rz in enumerate(cabinet_rails(cabinet), start=1):
-            all_parts.append({
-                "Lettre": f"C{i}-T{_rk}",
-                "Référence Pièce": f"Tringle (C{i})",
-                "Matière": "Tringle",
-                "Caisson": f"C{i}",
-                "Qté": 1,
-                "Longueur (mm)": _rz['x_max'] - _rz['x_min'],
-                "Largeur (mm)": 0.0,
-                "Epaisseur": 0.0,
-                "Chant Avant": False, "Chant Arrière": False, "Chant Gauche": False, "Chant Droit": False,
-                "Usinage": "",
-            })
+        # Tringles : quincaillerie, pas une planche -> Nomenclature, pas débit.
 
     # Fusion des lignes strictement identiques (même référence, mêmes dimensions,
     # même matière, mêmes chants, même usinage) : on cumule la quantité au lieu
@@ -1326,7 +1355,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
 
 def get_cached_project_parts():
     """Calcule la feuille de debit seulement quand la scene change."""
-    PARTS_CACHE_SCHEMA_VERSION = "v8_vertical_shelves"
+    PARTS_CACHE_SCHEMA_VERSION = "v9_no_rails"
     scene_json = _scene_to_json(st.session_state['scene_cabinets'])
     parts_context = {
         "has_feet": bool(st.session_state.get('has_feet', False)),
