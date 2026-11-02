@@ -38,7 +38,9 @@ def get_default_drawer_props():
         'drawer_gap': 2.0,
         'drawer_bottom_offset': 0.0,  # Position Y du bas du tiroir (en mm depuis la traverse inférieure)
         'drawer_system': 'TANDEMBOX',  # 'TANDEMBOX' ou 'LÉGRABOX'
-        'drawer_tech_type': 'K',  # Pour TANDEMBOX: 'K', 'M', 'N', 'D'. Pour LÉGRABOX: 'N', 'M', 'K', 'C'
+        'drawer_tech_type': 'K',  # Pour TANDEMBOX: 'K', 'M', 'N', 'D'. Pour LÉGRABOX: 'N', 'M', 'K', 'C', 'F'
+        'legrabox_nl': None,  # LÉGRABOX : longueur nominale (None = la plus grande qui rentre)
+        'legrabox_load': 40,  # LÉGRABOX : charge coulisse 40 ou 70 kg
         'drawer_handle_type': 'none',
         'drawer_handle_width': 150.0,
         'drawer_handle_height': 40.0,
@@ -161,7 +163,7 @@ def get_joue_dimensions(joue_key, dims, has_feet=False, foot_height=0.0,
     }
 
 def get_legrabox_specs():
-    """Retourne les spécifications pour le système LÉGRABOX (N, M, K, C)."""
+    """Retourne les spécifications pour le système LÉGRABOX (N, M, K, C, F)."""
     return {
         'N': {
             'back_height': 39.0,
@@ -227,6 +229,27 @@ def get_legrabox_specs():
             'back_holes': {
                 'x_offset': 9.0,
                 'y_coords': [19.0, 51.0, 115.0, 131.0],
+                'diam_str': '⌀2.5/3'
+            },
+            'bottom_holes': {
+                'x_offset': 48.5,
+                'y_coords': [24.0, 152.0],
+                'diam_str': '⌀2.5/3'
+            }
+        },
+        # Hauteur F (fiche Blum « Bloc-tiroir – Hauteur F ») : dos 212 mm,
+        # face EXPANDO variante 3 (51 + 32 / 96 / 32 / 32), dos 19 + 32 / 96 / 32.
+        # Longueurs nominales 450 à 650 seulement.
+        'F': {
+            'back_height': 212.0,
+            'face_holes': {
+                'x_offset': 12.0,
+                'y_coords': [51.0, 83.0, 179.0, 211.0, 243.0],
+                'diam_str': '⌀10/12'
+            },
+            'back_holes': {
+                'x_offset': 9.0,
+                'y_coords': [19.0, 51.0, 147.0, 179.0],
                 'diam_str': '⌀2.5/3'
             },
             'bottom_holes': {

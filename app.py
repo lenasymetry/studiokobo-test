@@ -68,6 +68,12 @@ from machining_logic import (
     format_plinthe_labels,
     carcass_piece_dims,
     drawer_piece_dims,
+    legrabox_inner_depth,
+    legrabox_nl_options,
+    legrabox_nominal_length,
+    legrabox_load,
+    LEGRABOX_LOADS_KG,
+    LEGRABOX_NL_DEPTH_MARGIN_MM,
     door_columns,
     door_zone_span,
     door_cover_span,
@@ -820,6 +826,47 @@ def _render_exports(all_parts):
                 )
             else:
                 st.warning("⚠️ Script Ruby indisponible.")
+
+
+def _legrabox_nl_widgets(cabinet, drp, nl_key, load_key, on_change_nl=None, on_change_load=None):
+    """Menus longueur nominale (NL) et charge d'un tiroir LÉGRABOX.
+    Retourne (legrabox_nl, legrabox_load) choisis ; legrabox_nl None = auto."""
+    options = legrabox_nl_options(cabinet, drp)
+    depth = legrabox_inner_depth(cabinet)
+    if not options:
+        tech = drp.get('drawer_tech_type', 'K')
+        st.warning(
+            f"Caisson trop peu profond pour une LÉGRABOX {tech} : profondeur intérieure "
+            f"{depth:.0f} mm, il faut au moins NL + {LEGRABOX_NL_DEPTH_MARGIN_MM:.0f} mm."
+        )
+        return drp.get('legrabox_nl'), drp.get('legrabox_load', 40)
+    nl_choices = [None] + options[::-1]
+    current_nl = drp.get('legrabox_nl')
+    nl_value = st.selectbox(
+        "Longueur nominale NL (mm)",
+        options=nl_choices,
+        index=nl_choices.index(current_nl) if current_nl in nl_choices else 0,
+        format_func=lambda v: f"Auto (NL {options[-1]})" if v is None else f"NL {v}",
+        key=nl_key,
+        on_change=on_change_nl,
+        help=f"Profondeur intérieure {depth:.0f} mm ≥ NL + {LEGRABOX_NL_DEPTH_MARGIN_MM:.0f} mm. Fond = NL - 10.",
+    )
+    current_load = drp.get('legrabox_load', 40)
+    load_value = st.selectbox(
+        "Charge coulisse",
+        options=list(LEGRABOX_LOADS_KG),
+        index=list(LEGRABOX_LOADS_KG).index(current_load) if current_load in LEGRABOX_LOADS_KG else 0,
+        format_func=lambda v: f"{v} kg",
+        key=load_key,
+        on_change=on_change_load,
+    )
+    nl = legrabox_nominal_length(cabinet, dict(drp, legrabox_nl=nl_value))
+    load = legrabox_load(dict(drp, legrabox_load=load_value), nl)
+    note = f"NL {nl} · {load} kg · fond {nl - 10:.0f} mm"
+    if load != load_value:
+        note += " (NL 650 : coulisse 70 kg)"
+    st.caption(note)
+    return nl_value, load_value
 
 
 def get_automatic_edge_banding(part_name):
@@ -2378,7 +2425,7 @@ with col1:
                         
                         # Sélection du type selon le système
                         if p['drawer_system'] == 'LÉGRABOX':
-                            tech_opts = ['N', 'M', 'K', 'C']
+                            tech_opts = ['N', 'M', 'K', 'C', 'F']
                         else:  # TANDEMBOX et ANGLAISE partagent les mêmes types
                             tech_opts = ['K', 'M', 'N', 'D']
                         curr_tech = p.get('drawer_tech_type', 'K')
@@ -2389,6 +2436,12 @@ with col1:
                             index=idx_tech,
                             key=f"pending_drawer_tech_type_{idx}",
                         )
+                        if p['drawer_system'] == 'LÉGRABOX':
+                            p['legrabox_nl'], p['legrabox_load'] = _legrabox_nl_widgets(
+                                selected_cab, p,
+                                nl_key=f"pending_drawer_legrabox_nl_{idx}",
+                                load_key=f"pending_drawer_legrabox_load_{idx}",
+                            )
                         
                         if not is_stack_mode:
                             # Mode tiroir unique : on garde les champs manuels
@@ -2622,7 +2675,7 @@ with col1:
                                 
                                 # Sélection du type selon le système
                                 if drawer_system == 'LÉGRABOX':
-                                    tech_opts = ['N', 'M', 'K', 'C']
+                                    tech_opts = ['N', 'M', 'K', 'C', 'F']
                                 else:  # TANDEMBOX et ANGLAISE partagent les mêmes types
                                     tech_opts = ['K', 'M', 'N', 'D']
                                 curr_tech = d.get('drawer_tech_type', 'K')
@@ -2634,6 +2687,14 @@ with col1:
                                     key=f"drawer_tech_type_{idx}_{i}",
                                     on_change=lambda x=i: update_drawer_prop(x, 'drawer_tech_type')
                                 )
+                                if drawer_system == 'LÉGRABOX':
+                                    _legrabox_nl_widgets(
+                                        selected_cab, d,
+                                        nl_key=f"drawer_legrabox_nl_{idx}_{i}",
+                                        load_key=f"drawer_legrabox_load_{idx}_{i}",
+                                        on_change_nl=lambda x=i: update_drawer_prop(x, 'legrabox_nl'),
+                                        on_change_load=lambda x=i: update_drawer_prop(x, 'legrabox_load'),
+                                    )
                                 
                                 st.number_input(
                                     "Hauteur Face (mm)",

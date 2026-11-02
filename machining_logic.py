@@ -1247,6 +1247,81 @@ def find_element_zone(element, zones, tol=1.0):
     return None
 
 
+# LÉGRABOX : longueurs nominales (NL) Blum et profondeur intérieure minimale
+# du corps = NL + 3 mm (fiche « Position de vissage des coulisses »).
+LEGRABOX_NOMINAL_LENGTHS = (270, 300, 350, 400, 450, 500, 550, 600, 650)
+LEGRABOX_NL_DEPTH_MARGIN_MM = 3.0
+# La hauteur F n'existe qu'en NL 450 à 650.
+LEGRABOX_NL_MIN_BY_TECH = {'F': 450}
+LEGRABOX_LOADS_KG = (40, 70)
+
+
+def legrabox_inner_depth(cabinet):
+    """Profondeur intérieure du corps (devant le fond encastré), en mm."""
+    W_raw = float((cabinet.get('dims', {}) or {}).get('W_raw', 0.0))
+    return max(0.0, W_raw - FOND_REBATE_MM)
+
+
+def legrabox_nl_options(cabinet, drp):
+    """Longueurs nominales qui rentrent dans le caisson pour ce tiroir (croissant)."""
+    depth = legrabox_inner_depth(cabinet)
+    nl_min = LEGRABOX_NL_MIN_BY_TECH.get(drp.get('drawer_tech_type', 'K'), 0)
+    return [nl for nl in LEGRABOX_NOMINAL_LENGTHS
+            if nl >= nl_min and nl + LEGRABOX_NL_DEPTH_MARGIN_MM <= depth]
+
+
+def legrabox_nominal_length(cabinet, drp):
+    """NL du tiroir : celle choisie (`legrabox_nl`) si elle rentre, sinon la
+    plus grande qui rentre. None si le caisson est trop peu profond."""
+    options = legrabox_nl_options(cabinet, drp)
+    if not options:
+        return None
+    chosen = drp.get('legrabox_nl')
+    try:
+        chosen = int(chosen) if chosen is not None else None
+    except (TypeError, ValueError):
+        chosen = None
+    return chosen if chosen in options else options[-1]
+
+
+def legrabox_load(drp, nl):
+    """Charge de la coulisse (kg). La coulisse 40 kg s'arrête à NL 600 :
+    NL 650 passe en 70 kg."""
+    try:
+        load = int(drp.get('legrabox_load', 40))
+    except (TypeError, ValueError):
+        load = 40
+    if load not in LEGRABOX_LOADS_KG:
+        load = 40
+    if nl is not None and nl > 600:
+        load = 70
+    return load
+
+
+def legrabox_slide_hole_xs(nl, load):
+    """Positions de vissage de la coulisse LÉGRABOX sur le montant, en mm
+    depuis l'avant du caisson (fiche Blum, NL 450 à 650) : repère à 37,
+    trou à 9 devant (28), puis 32 / 224 / 256 / 320 / 416 derrière.
+    None hors de la fiche (NL < 450) : l'appelant garde son tableau."""
+    if nl is None or nl < 450:
+        return None
+    xs = [28.0, 37.0, 69.0, 261.0, 293.0]
+    if (load == 40 and nl >= 550) or (load == 70 and nl >= 500):
+        xs.append(357.0)
+    if load == 70 and nl >= 650:
+        xs.append(453.0)
+    return xs
+
+
+def drawer_slide_hole_xs(cabinet, drp):
+    """Trous de coulisse LÉGRABOX selon la longueur nominale, ou None si le
+    tiroir n'est pas une LÉGRABOX couverte par la fiche."""
+    if drp.get('drawer_system') != 'LÉGRABOX':
+        return None
+    nl = legrabox_nominal_length(cabinet, drp)
+    return legrabox_slide_hole_xs(nl, legrabox_load(drp, nl))
+
+
 def drawer_piece_dims(cabinet, drp, zones):
     """Dimensions des pièces d'un tiroir, source unique (débit + usinage).
 
@@ -1273,12 +1348,16 @@ def drawer_piece_dims(cabinet, drp, zones):
     zone_total = (z_x1 - z_x0) if zone is not None else L_eff
     zone_interior = zone_total - 2.0 * t_lr
 
+    nl = None
     if system == 'LÉGRABOX':
         box_face = zone_total - 2.0 * gap
         back_w = max(0.0, zone_interior - 38.0)
         back_h = get_legrabox_specs().get(tech, get_legrabox_specs()['K'])['back_height']
         bottom_w = max(0.0, zone_interior - 35.0)
-        bottom_d = max(0.0, W_raw - 2.0 * t_lr - 10.0)
+        # Fond = NL - 10 (dos bois). Caisson trop court pour toute NL :
+        # ancien calcul sur la profondeur.
+        nl = legrabox_nominal_length(cabinet, drp)
+        bottom_d = (nl - 10.0) if nl is not None else max(0.0, W_raw - 2.0 * t_lr - 10.0)
     elif system == 'ANGLAISE':
         box_face = max(0.0, zone_total - 4.0)
         back_w = max(0.0, box_face - 40.0)
@@ -1309,6 +1388,7 @@ def drawer_piece_dims(cabinet, drp, zones):
         'back_w': back_w, 'back_h': float(back_h),
         'bottom_w': bottom_w, 'bottom_d': bottom_d,
         'inner_t': float(drp.get('inner_thickness', 16.0)),
+        'nl': nl, 'load': legrabox_load(drp, nl) if nl is not None else None,
     }
 
 

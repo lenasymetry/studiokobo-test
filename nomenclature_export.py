@@ -17,7 +17,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from machining_logic import cabinet_rails, foot_positions_mm
+from machining_logic import cabinet_rails, foot_positions_mm, legrabox_nominal_length, legrabox_load
 
 # Hauteur stockée -> plage choisie dans l'étape 1D.
 FOOT_HEIGHT_LABELS = {20.0: "20", 100.0: "80-100", 120.0: "110-120"}
@@ -56,11 +56,16 @@ def count_hardware(sheet_plans):
     return {"vis": vis, "tourillon_trous": tour, "charniere": hinges}
 
 
-def _drawer_label(drp):
+def _drawer_label(cab, drp):
     system = str(drp.get("drawer_system", "TANDEMBOX") or "TANDEMBOX")
     tech = str(drp.get("drawer_tech_type", "K") or "K")
     if system == "ANGLAISE":
         return f"Tiroir à l'anglaise - type {tech}"
+    if system == "LÉGRABOX":
+        # Les coulisses se commandent par longueur nominale et charge.
+        nl = legrabox_nominal_length(cab, drp)
+        if nl is not None:
+            return f"Tiroir {system} - type {tech} - NL {nl} - {legrabox_load(drp, nl)} kg"
     return f"Tiroir {system} - type {tech}"
 
 
@@ -81,7 +86,7 @@ def nomenclature_lines(scene, sheet_plans, feet=None):
             length = round(rz["x_max"] - rz["x_min"])
             rail_lengths.setdefault(length, []).append(f"C{i}")
         for drp in cab.get("drawers") or []:
-            drawers.setdefault(_drawer_label(drp), []).append(f"C{i}")
+            drawers.setdefault(_drawer_label(cab, drp), []).append(f"C{i}")
 
     n_rails = sum(len(v) for v in rail_lengths.values())
     if n_rails:
