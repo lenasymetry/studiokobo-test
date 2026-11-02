@@ -1726,3 +1726,34 @@ def joue_assembly_holes(scene_cabinets, cab_index, joue_key, has_feet=False, foo
             x = z if joue_key == 'gauche' else length - z
             holes.append({'type': 'tourillon', 'x': x, 'y': front + float(h['x']), 'diam_str': "⌀8"})
     return holes
+
+
+# --- Tringles -------------------------------------------------------------------
+# Tringle de penderie posée dans une zone : visible en 3D et comptée dans la
+# feuille de débit, sans usinage. Axe à 60 mm sous le haut de la zone, à
+# mi-profondeur ; section ovale 30 x 15 mm.
+RAIL_TOP_OFFSET_MM = 60.0
+RAIL_SECTION_H_MM = 30.0
+RAIL_SECTION_D_MM = 15.0
+
+
+def cabinet_rails(cabinet):
+    """Tringles du caisson : [{'x_min', 'x_max', 'y_min', 'y_max'}] en mm
+    (zone d'accueil, repère caisson, y depuis le bas du caisson)."""
+    out = []
+    for r in (cabinet or {}).get('rails', []) or []:
+        z = r.get('zone_coords') or {}
+        try:
+            x0, x1 = float(z['x_min']), float(z['x_max'])
+            y0, y1 = float(z['y_min']), float(z['y_max'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if x1 > x0 and y1 > y0:
+            out.append({'x_min': x0, 'x_max': x1, 'y_min': y0, 'y_max': y1})
+    return out
+
+
+def rail_axis_height(zone):
+    """Hauteur de l'axe d'une tringle (mm depuis le bas du caisson)."""
+    return max(float(zone['y_min']) + RAIL_SECTION_H_MM / 2.0,
+               float(zone['y_max']) - RAIL_TOP_OFFSET_MM)

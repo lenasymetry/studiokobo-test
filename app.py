@@ -72,6 +72,10 @@ from machining_logic import (
     door_cover_span,
     column_filler_spans,
     column_filler_width,
+    cabinet_rails,
+    rail_axis_height,
+    RAIL_SECTION_H_MM,
+    RAIL_SECTION_D_MM,
     compute_drawer_stack_layout,
     get_top_joue_neighbor_index,
     get_cabinet_above_index,
@@ -1228,6 +1232,21 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
                     "Usinage": usinage_divider
                 })
             
+        # 6. Tringles : accessoire sans usinage, longueur = largeur de la zone.
+        for _rk, _rz in enumerate(cabinet_rails(cabinet), start=1):
+            all_parts.append({
+                "Lettre": f"C{i}-T{_rk}",
+                "Référence Pièce": f"Tringle (C{i})",
+                "Matière": "Tringle",
+                "Caisson": f"C{i}",
+                "Qté": 1,
+                "Longueur (mm)": _rz['x_max'] - _rz['x_min'],
+                "Largeur (mm)": 0.0,
+                "Epaisseur": 0.0,
+                "Chant Avant": False, "Chant Arrière": False, "Chant Gauche": False, "Chant Droit": False,
+                "Usinage": "",
+            })
+
     # Fusion des lignes strictement identiques (même référence, mêmes dimensions,
     # même matière, mêmes chants, même usinage) : on cumule la quantité au lieu
     # de répéter des lignes identiques en quantité 1.
@@ -2980,6 +2999,24 @@ with col1:
                                 st.button("Supprimer cette étagère 🗑️", key=f"del_shelf_{idx}_{i}", on_click=lambda x=i: delete_shelf_callback(x))
                     
                     st.markdown("---")
+                    st.markdown("#### Tringles")
+                    st.caption("Tringle de penderie posée dans une zone, 60 mm sous le haut de la zone : "
+                               "visible en 3D et comptée dans la feuille de débit, sans usinage.")
+                    _rail_zones = calculate_all_zones_2d(selected_cab, include_all_elements=False)
+                    if _rail_zones:
+                        _rz_labels = {z['id']: f"{z['label']} (X:{z['x_min']:.0f}-{z['x_max']:.0f}mm, Y:{z['y_min']:.0f}-{z['y_max']:.0f}mm)"
+                                      for z in _rail_zones}
+                        c_rail1, c_rail2 = st.columns([3, 1])
+                        c_rail1.selectbox("Zone de la tringle", options=list(_rz_labels), format_func=lambda z: _rz_labels[z],
+                                          key=f"rail_zone_{idx}")
+                        c_rail2.button("➕ Ajouter une tringle", key=f"add_rail_{idx}", on_click=add_rail_callback,
+                                       args=(idx,), use_container_width=True)
+                    for _rk, _rz in enumerate(cabinet_rails(selected_cab)):
+                        c_r1, c_r2 = st.columns([3, 1])
+                        c_r1.write(f"Tringle {_rk + 1} : longueur {_rz['x_max'] - _rz['x_min']:.0f} mm "
+                                   f"(X:{_rz['x_min']:.0f}-{_rz['x_max']:.0f}mm, Y:{_rz['y_min']:.0f}-{_rz['y_max']:.0f}mm)")
+                        c_r2.button("Supprimer 🗑️", key=f"del_rail_{idx}_{_rk}", on_click=delete_rail_callback,
+                                    args=(idx, _rk), use_container_width=True)
 
                 with t_div:
                     st.markdown("#### Montants Verticaux Secondaires (Séparations)")
@@ -4338,6 +4375,17 @@ with col2:
                         opacity=shelf_opacity,
                         showlegend=False
                     ))
+
+            # Tringles : à mi-profondeur, 60 mm sous le haut de leur zone.
+            for _rz in cabinet_rails(cab_render):
+                _rh = RAIL_SECTION_H_MM * unit_factor
+                _rd = RAIL_SECTION_D_MM * unit_factor
+                fig3d.add_trace(cuboid_mesh_for(
+                    (_rz['x_max'] - _rz['x_min']) * unit_factor, _rd, _rh,
+                    (o[0] + _rz['x_min'] * unit_factor,
+                     o[1] + cab_render['dims']['W_raw'] * unit_factor / 2.0 - _rd / 2.0,
+                     o[2] + rail_axis_height(_rz) * unit_factor - _rh / 2.0),
+                    color="#9AA0A6", opacity=1.0, name=f"Tringle {i}", showlegend=False))
 
             if 'joues' in cab_render and cab_render['joues']:
                 JOUES_COLOR = "#C8A96E"

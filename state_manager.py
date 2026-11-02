@@ -2088,3 +2088,28 @@ def update_vertical_shelf_material(shelf_index):
     if cabinet and widget_key in st.session_state:
         if 'vertical_shelves' in cabinet and shelf_index < len(cabinet['vertical_shelves']):
             cabinet['vertical_shelves'][shelf_index]['material'] = st.session_state[widget_key]
+
+def add_rail_callback(cab_idx):
+    """Ajoute une tringle dans la zone choisie (`rail_zone_<cab_idx>`)."""
+    scene = st.session_state.get('scene_cabinets', [])
+    if not (0 <= cab_idx < len(scene)):
+        return
+    cabinet = scene[cab_idx]
+    from machining_logic import calculate_all_zones_2d
+    zone_id = st.session_state.get(f"rail_zone_{cab_idx}")
+    zones = calculate_all_zones_2d(cabinet, include_all_elements=False)
+    zone = next((z for z in zones if z['id'] == zone_id), None)
+    if zone is None:
+        return
+    cabinet.setdefault('rails', []).append({'zone_coords': {
+        'x_min': zone['x_min'], 'x_max': zone['x_max'],
+        'y_min': zone['y_min'], 'y_max': zone['y_max'],
+    }})
+
+
+def delete_rail_callback(cab_idx, rail_idx):
+    scene = st.session_state.get('scene_cabinets', [])
+    if 0 <= cab_idx < len(scene):
+        rails = scene[cab_idx].get('rails', []) or []
+        if 0 <= rail_idx < len(rails):
+            rails.pop(rail_idx)
