@@ -1587,7 +1587,19 @@ def load_web_config_json_state():
 def update_selected_cabinet_dim(key):
     cabinet = get_selected_cabinet()
     widget_key = f"{key}_{st.session_state.selected_cabinet_index}"
-    if cabinet and widget_key in st.session_state: cabinet['dims'][key] = st.session_state[widget_key]
+    if cabinet and widget_key in st.session_state:
+        old_dims = dict(cabinet['dims'])
+        cabinet['dims'][key] = st.session_state[widget_key]
+        # Montants, étagères, tiroirs, portes, tringles suivent la nouvelle taille.
+        from cabinet_resize import rescale_cabinet_contents
+        rescale_cabinet_contents(cabinet, old_dims)
+        # Les champs de position déjà affichés gardent sinon l'ancienne valeur.
+        idx = st.session_state.selected_cabinet_index
+        prefixes = tuple(f"{p}{idx}_" for p in (
+            'shelf_h_', 'drawer_face_H_raw_', 'drawer_bottom_offset_', 'divider_position_x_',
+            'vertical_shelf_position_x_', 'vertical_shelf_bottom_y_', 'vertical_shelf_top_y_'))
+        for k in [k for k in st.session_state.keys() if isinstance(k, str) and k.startswith(prefixes)]:
+            del st.session_state[k]
 
 def update_selected_cabinet_base_element(element_key):
     """Met à jour l'état d'un élément de base du caisson (fond, montants, traverses)."""
