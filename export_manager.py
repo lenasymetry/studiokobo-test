@@ -739,14 +739,14 @@ def _add_plan_to_dxf(msp, title, Lp, Wp, Tp, fh, t_long_h, t_cote_h, proj_for_pl
 
     if has_rebate:
         REBATE_WIDTH = 38.0
-        msp.add_line((x0 + REBATE_WIDTH, y0), (x0 + REBATE_WIDTH, y1), dxfattribs={"layer": "FEUILLURE", "color": 1})
-        msp.add_line((x1 - REBATE_WIDTH, y0), (x1 - REBATE_WIDTH, y1), dxfattribs={"layer": "FEUILLURE", "color": 1})
+        msp.add_line((x0 + REBATE_WIDTH, y0), (x0 + REBATE_WIDTH, y1), dxfattribs={"layer": "FEUILLURE", "color": 7})
+        msp.add_line((x1 - REBATE_WIDTH, y0), (x1 - REBATE_WIDTH, y1), dxfattribs={"layer": "FEUILLURE", "color": 7})
         _add_linear_dimension_dxf(msp, base=(x0, y1 + 50.0), p1=(x0, y1), p2=(x0 + REBATE_WIDTH, y1), angle=0, layer="COTES")
         _add_linear_dimension_dxf(msp, base=(x1 - REBATE_WIDTH, y1 + 50.0), p1=(x1 - REBATE_WIDTH, y1), p2=(x1, y1), angle=0, layer="COTES")
         trait_tranche_gauche_x = tg_x0 - tranche_thick / 2.0
         trait_tranche_droite_x = td_x0 + tranche_thick / 2.0
-        msp.add_line((trait_tranche_gauche_x, y0), (trait_tranche_gauche_x, y1), dxfattribs={"layer": "FEUILLURE", "color": 1})
-        msp.add_line((trait_tranche_droite_x, y0), (trait_tranche_droite_x, y1), dxfattribs={"layer": "FEUILLURE", "color": 1})
+        msp.add_line((trait_tranche_gauche_x, y0), (trait_tranche_gauche_x, y1), dxfattribs={"layer": "FEUILLURE", "color": 7})
+        msp.add_line((trait_tranche_droite_x, y0), (trait_tranche_droite_x, y1), dxfattribs={"layer": "FEUILLURE", "color": 7})
         _add_linear_dimension_dxf(msp, base=(tg_x1, y1 + 90.0), p1=(tg_x1, y1), p2=(trait_tranche_gauche_x, y1), angle=0, layer="COTES")
         _add_linear_dimension_dxf(msp, base=(trait_tranche_gauche_x, y1 + 90.0), p1=(trait_tranche_gauche_x, y1), p2=(tg_x0, y1), angle=0, layer="COTES")
 
@@ -1190,7 +1190,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             ('LEGENDE', 7),
             ('REPERAGE', 1),
             ('AIDE_COTATION', 8),
-            ('FEUILLURE', 1),
+            ('FEUILLURE', 7),
         ]:
             if layer_name not in dxf_doc.layers:
                 dxf_doc.layers.new(layer_name, dxfattribs={'color': color})

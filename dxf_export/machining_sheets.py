@@ -49,7 +49,9 @@ DIM_STEP = 7.0         # entre deux lignes de cote
 TRANCHE_GAP_DIMS = DIM_ROW + 2 * DIM_STEP   # face -> tranche, côté cotes (2 rangées)
 TRANCHE_GAP = 8.0      # face -> tranche, côté sans cote
 TRANCHE_MIN = 4.0      # épaisseur mini affichée d'une tranche
-CALLOUT_ROW = 7.0      # tranche haute -> ligne des repères de perçage de face
+CALLOUT_ROW = 7.0
+REBATE_WIDTH = 38.0     # feuillure LÉGRABOX : largeur depuis les bouts gauche/droit
+REBATE_REMAINING = 8.0  # épaisseur restante dans la feuillure      # tranche haute -> ligne des repères de perçage de face
 CALLOUT_TEXT_W = 30.0  # largeur réservée à un repère latéral
 TRIANGLE = 5.0
 
@@ -398,6 +400,22 @@ class _Sheet:
     def edge_grooves(self, edge: str) -> List[dict]:
         return self.grooves() if edge in ("gauche", "droit") else []
 
+    def edge_rebates(self, edge: str) -> List[dict]:
+        """Feuillure LÉGRABOX vue sur les tranches : sur 38 mm à chaque bout
+        gauche/droit, la pièce passe de T (16) à 8 mm. Les tranches avant et
+        arrière ont donc une encoche à chaque bout ; les tranches gauche et
+        droite sont entièrement à 8 mm (encoche sur toute leur longueur)."""
+        if not self.plan.get("has_rebate"):
+            return []
+        depth = self.T - REBATE_REMAINING
+        if depth <= 0:
+            return []
+        if edge in ("avant", "arriere"):
+            spans = [(0.0, REBATE_WIDTH), (self.L - REBATE_WIDTH, self.L)]
+        else:
+            spans = [(0.0, self.W)]
+        return [{"y0": a, "y1": b, "depth": depth, "label": "Feuillure"} for a, b in spans]
+
     def face_holes(self) -> List[dict]:
         out = []
         for h in self.plan.get("face_holes") or []:
@@ -666,7 +684,7 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         # l'échelle de la tranche dessinée. L'encoche est découpée dans le
         # contour de la tranche (pas de trait sur son ouverture) et dans le
         # hachurage du chant.
-        grooves = sheet.edge_grooves(edge)
+        grooves = sheet.edge_grooves(edge) + sheet.edge_rebates(edge)
         face_c = {"bottom": y1, "top": y0, "left": x1, "right": x0}[side]
         inward = {"bottom": -1.0, "top": 1.0, "left": -1.0, "right": 1.0}[side]
         notches = []
@@ -685,6 +703,15 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
                     u, v = (a, b) if fwd else (b, a)
                     for w, c in ((u, face_c), (u, bot), (v, bot), (v, face_c)):
                         outline.append((w, c) if horizontal else (c, w))
+        # Encoche en bout de tranche : pas de point en double (contour fermé
+        # d'un seul tenant, sans trait sur l'ouverture de l'encoche).
+        clean = []
+        for pt in outline:
+            if not clean or abs(pt[0] - clean[-1][0]) > 1e-9 or abs(pt[1] - clean[-1][1]) > 1e-9:
+                clean.append(pt)
+        if len(clean) > 1 and abs(clean[0][0] - clean[-1][0]) < 1e-9 and abs(clean[0][1] - clean[-1][1]) < 1e-9:
+            clean.pop()
+        outline = clean
         msp.add_lwpolyline([D.P(*pt) for pt in outline], close=True, dxfattribs={"layer": "TRANCHES", "color": 7})
         if chants.get(chant_key[edge]):
             D.hatch_poly(outline)
@@ -705,11 +732,20 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
             else:
                 D.dim((face_c, b), (bot, b), "x", max(a, b) + 5 * s, text=_fmt(g["depth"]))
 
-        # Épaisseur réelle de la tranche (dessin agrandi si trop fine).
+        # Épaisseur réelle de la tranche (dessin agrandi si trop fine) ;
+        # tranche entièrement en feuillure : épaisseur restante.
+        length = Wd if horizontal else Hd
+        full = next((n for n in notches if n[0] <= 1e-6 and n[1] >= length - 1e-6), None)
         if side == "bottom":
-            D.dim((0, y0), (0, y1), "y", -6 * s, text=_fmt(sheet.T))
+            if full:
+                D.dim((0, y0), (0, full[2]), "y", -6 * s, text=_fmt(sheet.T - full[3]["depth"]))
+            else:
+                D.dim((0, y0), (0, y1), "y", -6 * s, text=_fmt(sheet.T))
         elif side == "left":
-            D.dim((x0, Hd), (x1, Hd), "x", Hd + 6 * s, text=_fmt(sheet.T))
+            if full:
+                D.dim((x0, Hd), (full[2], Hd), "x", Hd + 6 * s, text=_fmt(sheet.T - full[3]["depth"]))
+            else:
+                D.dim((x0, Hd), (x1, Hd), "x", Hd + 6 * s, text=_fmt(sheet.T))
 
         if not positions:
             continue
@@ -851,10 +887,10 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
 
     # --- Feuillure (LÉGRABOX) ---------------------------------------------------
     if sheet.plan.get("has_rebate"):
-        R = 38.0
+        R = REBATE_WIDTH
         for x in (R, sheet.L - R):
             a, b = sheet.tr(x, 0), sheet.tr(x, sheet.W)
-            D.line(a[0], a[1], b[0], b[1], layer="USINAGE")
+            D.line(a[0], a[1], b[0], b[1], layer="CONTOUR")
         a = sheet.tr(0, sheet.W)
         b = sheet.tr(R, sheet.W)
         if not sheet.rotated:
