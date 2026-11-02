@@ -2,8 +2,43 @@ import io
 import pandas as pd
 import openpyxl
 import json
+import re
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+# "(C0)", "(C0+C1)", "(C0, C1)" en fin de référence : le caisson passe devant.
+_CAB_SUFFIX_RE = re.compile(r"\s*\((C\d+(?:\s*[,+]\s*C\d+)*)\)\s*$")
+
+
+def _cab_tokens(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return []
+    return list(dict.fromkeys(re.findall(r"C\d+", str(value))))
+
+
+def _clean(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value).strip()
+
+
+def _repere_reference(row, multi_cab):
+    """Cellule unique "A - C0 - Traverse Bas" (C0 seulement si plusieurs caissons)."""
+    lettre = _clean(row.get("Lettre", "")).split('-')[-1]
+    ref = _clean(row.get("Référence Pièce", ""))
+    match = _CAB_SUFFIX_RE.search(ref)
+    cabs = _cab_tokens(row.get("Caisson", ""))
+    if match:
+        # Joue commune : Caisson = "C0" mais référence "(C0+C1)" -> on garde les deux.
+        cabs = sorted(set(cabs) | set(_cab_tokens(match.group(1))), key=lambda c: int(c[1:]))
+        ref = ref[:match.start()].strip()
+    if multi_cab and cabs:
+        ref = f"{'+'.join(cabs)} - {ref}"
+    meuble = _clean(row.get("Meuble", ""))
+    if meuble:
+        ref = f"{meuble} · {ref}"
+    return f"{lettre} - {ref}" if lettre else ref
+
 
 def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
     output = io.BytesIO()
@@ -49,6 +84,20 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
     else:
         df_export["GroupeKey"] = "Défaut"
 
+    # Repère et référence dans une seule cellule ; le caisson n'est indiqué
+    # que si le meuble (ou chaque meuble d'une feuille commune) en a plusieurs.
+    meuble_key = df_export["Meuble"].map(_clean) if "Meuble" in df_export.columns else pd.Series("", index=df_export.index)
+    multi_by_meuble = {}
+    for key in meuble_key.unique():
+        cab_set = set()
+        for value in df_export.loc[meuble_key == key, "Caisson"] if "Caisson" in df_export.columns else []:
+            cab_set.update(_cab_tokens(value))
+        multi_by_meuble[key] = len(cab_set) > 1
+    df_export["_repere_ref"] = [
+        _repere_reference(row, multi_by_meuble.get(meuble_key[idx], False))
+        for idx, row in df_export.iterrows()
+    ]
+
     groups = df_export["GroupeKey"].unique()
 
     for grp_name in groups:
@@ -59,10 +108,7 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         
         ws.column_dimensions['A'].width = 4 
         ws.column_dimensions['B'].width = 5 
-        # Feuille commune à plusieurs meubles : repère et référence fusionnés
-        # dans une seule cellule B:C ("A - 1B · Traverse Bas").
-        merged_ref = "Repère fusionné" in df_mat.columns
-        ws.column_dimensions['C'].width = 40 
+        ws.column_dimensions['C'].width = 46 
         ws.column_dimensions['D'].width = 6 
         ws.column_dimensions['E'].width = 12 
         ws.column_dimensions['F'].width = 6 
@@ -221,12 +267,11 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         ws['J8'].border = border_outline_medium
         ws['K8'].border = border_outline_medium
 
-        ref_head = 'B10' if merged_ref else 'C10'
-        ws.merge_cells(f'{ref_head}:C11')
-        ws[ref_head] = "Repère - Référence Pièce" if merged_ref else "Référence Pièce"
-        ws[ref_head].font = font_bold_std
-        ws[ref_head].alignment = Alignment(horizontal='center', vertical='center')
-        for head_cell in ('B10', 'B11', 'C10', 'C11') if merged_ref else ('C10', 'C11'):
+        ws.merge_cells('B10:C11')
+        ws['B10'] = "Repère - Référence Pièce"
+        ws['B10'].font = font_bold_std
+        ws['B10'].alignment = Alignment(horizontal='center', vertical='center')
+        for head_cell in ('B10', 'B11', 'C10', 'C11'):
             ws[head_cell].border = border_outline_medium
 
         ws.merge_cells('D10:D11')
@@ -295,16 +340,9 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         line_number = 1
         
         for idx, row in df_mat.iterrows():
-            raw_lettre = row.get("Lettre", "")
-            lettre_display = raw_lettre.split('-')[-1] if '-' in str(raw_lettre) else raw_lettre
-
             ws.cell(row=current_row, column=1, value=line_number).font = font_bold_std 
-            if merged_ref:
-                ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row, end_column=3)
-                ws.cell(row=current_row, column=2, value=row.get("Référence Pièce", "")).font = font_std
-            else:
-                ws.cell(row=current_row, column=2, value=lettre_display).font = font_std
-                ws.cell(row=current_row, column=3, value=row.get("Référence Pièce", "")).font = font_std
+            ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row, end_column=3)
+            ws.cell(row=current_row, column=2, value=row.get("_repere_ref", "")).font = font_std
             ws.cell(row=current_row, column=4, value=row.get("Qté", 1)).font = font_std
             ws.cell(row=current_row, column=5, value=row.get("Longueur (mm)", 0)).font = font_std
             ws.cell(row=current_row, column=6, value=row.get("Chant Avant", "NON")).font = font_std
@@ -317,7 +355,7 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
             for c_idx in range(1, 12):
                 cell = ws.cell(row=current_row, column=c_idx)
                 cell.border = border_thin
-                if c_idx in [3, 11] or (merged_ref and c_idx == 2): 
+                if c_idx in [2, 3, 11]: 
                     cell.alignment = Alignment(horizontal='left', vertical='center')
                 else:
                     cell.alignment = Alignment(horizontal='center', vertical='center')

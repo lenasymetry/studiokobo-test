@@ -1372,10 +1372,8 @@ def _merged_debit_parts(saves):
     for meuble_name, payload in saves:
         for part in _parts_for_saved_project(payload):
             row = dict(part)
-            lettre = str(part.get("Lettre", "") or "").split('-')[-1]
-            row["Référence Pièce"] = f"{lettre} - {meuble_name} · {part.get('Référence Pièce', '')}"
-            row["Caisson"] = f"{meuble_name} {part.get('Caisson', '')}".strip()
-            row["Repère fusionné"] = True
+            # L'export Excel compose "A - Meuble · C0 - Traverse Bas".
+            row["Meuble"] = meuble_name
             merged.append(row)
     return merged
 
