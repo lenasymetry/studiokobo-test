@@ -4489,59 +4489,8 @@ with col2:
                             showlegend=False,
                         ))
             
-            # Ajouter les annotations de toutes les zones 2D (après tous les éléments)
-            # NE PAS afficher les labels noirs pendant la prévisualisation (seulement les labels bleus des zones existantes)
-            # Utiliser include_all_elements=True pour voir toutes les zones créées
-            if not (pending and pending.get('cabinet_index') == i):
-                all_zones_2d = zones_render_all
-
-                add_zone_outlines_3d(
-                    fig3d,
-                    all_zones_2d,
-                    o,
-                    cab['dims'],
-                    unit_factor,
-                    zone_ids_to_show=None,
-                    fill_color="rgba(0,100,200,0.3)",
-                    line_color="rgba(0,100,200,0.95)",
-                    line_width=4,
-                    y_plane_offset=-0.015,
-                )
-
-                # Les boites wireframe de debug peuvent perturber le rendu WebGL sur certains navigateurs.
-                # On les desactive par defaut pour stabiliser la previsualisation 3D utilisateur.
-                SHOW_ZONE_DEBUG_BOXES = False
-                if SHOW_ZONE_DEBUG_BOXES:
-                    add_zone_debug_boxes_3d(
-                        fig3d,
-                        all_zones_2d,
-                        o,
-                        cab['dims'],
-                        unit_factor,
-                        wireframe=True,
-                        opacity=0.4,
-                        y_plane_offset=-0.008,
-                    )
-                
-            for zone in all_zones_2d:
-                zone_center_x_mm = (zone['x_min'] + zone['x_max']) / 2.0
-                zone_center_y_mm = (zone['y_min'] + zone['y_max']) / 2.0
-                annot_x = o[0] + (zone_center_x_mm * unit_factor)
-                # Meme plan Y que les zones remplies/contours pour eviter la parallaxe au dezoom.
-                annot_y = o[1] + W / 2.0 - 0.015
-                annot_z = o[2] + tt + ((zone_center_y_mm - cab['dims']['t_tb_raw']) * unit_factor)
-                fig3d.add_trace(go.Scatter3d(
-                    x=[annot_x],
-                    y=[annot_y],
-                    z=[annot_z],
-                    mode='text',
-                    text=[f"<b>Zone {zone['id']}</b>"],
-                    textposition='middle center',
-                    textfont=dict(size=14, color="black", family="Arial Black"),
-                    showlegend=False,
-                    hoverinfo='skip'
-                ))
-            
+            # Zones (bleu + étiquettes) affichées uniquement pendant une pose : elles
+            # disparaissent dès que l'élément est validé ou annulé.
             # --- AFFICHAGE DES ZONES AVANT/APRÈS (pendant la pose) ---
             if pending and pending.get('cabinet_index') == i:
                 # 1. Calculer les zones AVANT la pose (sans l'élément pending)
