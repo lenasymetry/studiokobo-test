@@ -17,7 +17,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from machining_logic import cabinet_rails
+from machining_logic import cabinet_rails, foot_positions_mm
+
+# Hauteur stockée -> plage choisie dans l'étape 1D.
+FOOT_HEIGHT_LABELS = {20.0: "20", 100.0: "80-100", 120.0: "110-120"}
 
 
 def _plan_quantity(plan):
@@ -61,8 +64,12 @@ def _drawer_label(drp):
     return f"Tiroir {system} - type {tech}"
 
 
-def nomenclature_lines(scene, sheet_plans):
-    """[(désignation, quantité, détail)] sans les lignes à 0."""
+def nomenclature_lines(scene, sheet_plans, feet=None):
+    """[(désignation, quantité, détail)] sans les lignes à 0.
+
+    feet : {'has_feet', 'foot_height', 'foot_diameter', 'extra_feet',
+    'extra_feet_rows'} (options globales du projet). Un pied = 1 pièce, sans
+    vis ni tourillon."""
     lines = []
 
     rail_lengths = OrderedDict()
@@ -92,6 +99,16 @@ def nomenclature_lines(scene, sheet_plans):
         lines.append(("Tourillon", n_dowels, f"{counts['tourillon_trous']} trous de tourillon (2 trous = 1 tourillon)"))
     if counts["charniere"]:
         lines.append(("Charnière", counts["charniere"], "1 cuvette ⌀35 + 2 vis ⌀8 = 1 charnière"))
+
+    feet = feet or {}
+    if feet.get("has_feet"):
+        n_feet = len(foot_positions_mm(scene, feet.get("extra_feet", False), feet.get("extra_feet_rows", 0)))
+        if n_feet:
+            height = float(feet.get("foot_height", 0.0) or 0.0)
+            h_txt = FOOT_HEIGHT_LABELS.get(height, f"{height:.0f}")
+            diam = float(feet.get("foot_diameter", 0.0) or 0.0)
+            detail = f"Hauteur {h_txt} mm" + (f", ⌀{diam:.0f} mm" if diam else "")
+            lines.append(("Pied", n_feet, detail))
 
     for label, cabs in drawers.items():
         lines.append((label, len(cabs), ", ".join(dict.fromkeys(cabs))))

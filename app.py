@@ -324,7 +324,11 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         if not isinstance(sheet_plans, list):
             sheet_plans, _ = generate_stacked_html_plans(scene, indices, output_format="plans")
         nomenclature_pdf_data = generate_nomenclature_pdf(
-            nomenclature_lines(scene, sheet_plans if isinstance(sheet_plans, list) else []),
+            nomenclature_lines(
+                scene, sheet_plans if isinstance(sheet_plans, list) else [],
+                feet={k: st.session_state.get(k) for k in (
+                    'has_feet', 'foot_height', 'foot_diameter', 'extra_feet', 'extra_feet_rows')},
+            ),
             project_name=st.session_state.get("project_name", ""),
             client=st.session_state.get("client", ""),
             date_str=datetime.date.today().strftime("%d/%m/%Y"),
