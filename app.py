@@ -19,6 +19,44 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
+
+def _refresh_stale_project_modules():
+    """Après une mise à jour du site, le serveur garde en mémoire les anciens
+    modules du projet. Un module chargé plus tard (export_manager, au moment
+    de l'export) arrive dans sa nouvelle version et réclame des fonctions
+    absentes des anciens (ImportError « cannot import name … »). Si un fichier
+    du projet a changé depuis son chargement, on oublie TOUS les modules du
+    projet pour qu'ils soient rechargés ensemble, dans la même version."""
+    import time
+    last_check = getattr(sys, '_kobo_modules_checked_at', None)
+    project, stale = [], False
+    for name, mod in list(sys.modules.items()):
+        path = getattr(mod, '__file__', None)
+        if name == '__main__' or not path or not os.path.abspath(path).startswith(APP_DIR + os.sep):
+            continue
+        project.append(name)
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        stamp = getattr(mod, '_kobo_mtime', None)
+        if stamp is None:
+            # Chargé depuis la dernière vérification : à jour seulement si le
+            # fichier n'a pas changé depuis.
+            if last_check is None or mtime > last_check:
+                stale = True
+            else:
+                mod._kobo_mtime = mtime
+        elif stamp != mtime:
+            stale = True
+    sys._kobo_modules_checked_at = time.time()
+    if stale:
+        for name in project:
+            sys.modules.pop(name, None)
+
+
+_refresh_stale_project_modules()
+
 from state_manager import *
 from project_definitions import *
 from geometry_helpers import (
