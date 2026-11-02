@@ -130,6 +130,7 @@ def initialize_session_state():
     st.session_state.setdefault('has_feet', False)
     st.session_state.setdefault('foot_height', 80.0) 
     st.session_state.setdefault('foot_diameter', 30.0)
+    st.session_state.setdefault('extra_feet', False)
     
     # Pose en 2 temps (prévisualisation -> validation)
     # pending_placement: { kind: 'shelf'|'vertical_divider'|'vertical_shelf', cabinet_index: int, props: dict }
@@ -193,6 +194,8 @@ def load_save_state():
                 st.session_state['has_feet'] = loaded_data.get('has_feet', False)
                 st.session_state['foot_height'] = loaded_data.get('foot_height', 80.0)
                 st.session_state['foot_diameter'] = loaded_data.get('foot_diameter', 50.0)
+                st.session_state['extra_feet'] = loaded_data.get('extra_feet', False)
+                st.session_state['extra_feet_rows'] = loaded_data.get('extra_feet_rows', 1)
                 st.session_state['scene_cabinets'] = loaded_data.get('scene_cabinets', [])
                 if st.session_state['scene_cabinets']:
                     st.session_state['selected_cabinet_index'] = 0
@@ -2099,6 +2102,7 @@ def add_rail_callback(cab_idx):
     zone_id = st.session_state.get(f"rail_zone_{cab_idx}")
     zones = calculate_all_zones_2d(cabinet, include_all_elements=False)
     zone = next((z for z in zones if z['id'] == zone_id), None)
+    st.session_state[f"rail_pending_{cab_idx}"] = False
     if zone is None:
         return
     cabinet.setdefault('rails', []).append({'zone_coords': {

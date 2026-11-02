@@ -73,6 +73,8 @@ from machining_logic import (
     column_filler_spans,
     column_filler_width,
     cabinet_rails,
+    scene_floor_width_mm,
+    default_extra_feet_rows,
     rail_axis_height,
     RAIL_SECTION_H_MM,
     RAIL_SECTION_D_MM,
@@ -322,6 +324,8 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
             "has_feet": st.session_state.get("has_feet", False),
             "foot_height": st.session_state.get("foot_height", 80.0),
             "foot_diameter": st.session_state.get("foot_diameter", 30.0),
+            "extra_feet": st.session_state.get("extra_feet", False),
+            "extra_feet_rows": st.session_state.get("extra_feet_rows", 1),
             "scene_cabinets": scene,
         }
         xls_data = create_styled_excel(project_info, export_df, save_data_export)
@@ -1909,6 +1913,15 @@ with col1:
             sel_feet = st.selectbox("Hauteur (mm)", options=["20", "80-100", "110-120"], index=1)
             st.session_state.foot_height = feet_map[sel_feet]
             st.number_input("Diamètre pieds (mm)", min_value=10.0, key='foot_diameter', value=50.0, format="%.0f", step=1.0)
+            _feet_width = scene_floor_width_mm(st.session_state['scene_cabinets'])
+            if _feet_width > 1000.0:
+                st.toggle(f"Ajouter des pieds intermédiaires (meuble de {_feet_width:.0f} mm)", key='extra_feet')
+                if st.session_state.get('extra_feet'):
+                    if not st.session_state.get('extra_feet_rows'):
+                        st.session_state.extra_feet_rows = default_extra_feet_rows(_feet_width)
+                    st.number_input("Rangées de pieds intermédiaires (avant + arrière)", min_value=1, step=1,
+                                    key='extra_feet_rows')
+                    st.caption(f"Total : {4 + 2 * int(st.session_state.extra_feet_rows)} pieds, répartis régulièrement sur la largeur.")
 
     with tab_edit:
         st.markdown('<div class="kb-step">Etape 2A - Choix du caisson a modifier</div>', unsafe_allow_html=True)
@@ -3000,22 +3013,22 @@ with col1:
                     
                     st.markdown("---")
                     st.markdown("#### Tringles")
-                    st.caption("Tringle de penderie posée dans une zone, 60 mm sous le haut de la zone : "
-                               "visible en 3D et comptée dans la feuille de débit, sans usinage.")
-                    _rail_zones = calculate_all_zones_2d(selected_cab, include_all_elements=False)
-                    if _rail_zones:
+                    _rail_pending_key = f"rail_pending_{idx}"
+                    if not st.session_state.get(_rail_pending_key):
+                        st.button("➕ Ajouter une tringle", key=f"add_rail_{idx}", use_container_width=True,
+                                  on_click=lambda k=_rail_pending_key: st.session_state.__setitem__(k, True))
+                    else:
+                        _rail_zones = calculate_all_zones_2d(selected_cab, include_all_elements=False)
                         _rz_labels = {z['id']: f"{z['label']} (X:{z['x_min']:.0f}-{z['x_max']:.0f}mm, Y:{z['y_min']:.0f}-{z['y_max']:.0f}mm)"
                                       for z in _rail_zones}
-                        c_rail1, c_rail2 = st.columns([3, 1])
-                        c_rail1.selectbox("Zone de la tringle", options=list(_rz_labels), format_func=lambda z: _rz_labels[z],
-                                          key=f"rail_zone_{idx}")
-                        c_rail2.button("➕ Ajouter une tringle", key=f"add_rail_{idx}", on_click=add_rail_callback,
-                                       args=(idx,), use_container_width=True)
+                        st.selectbox("Zone de la tringle", options=list(_rz_labels), format_func=lambda z: _rz_labels[z],
+                                     key=f"rail_zone_{idx}")
+                        st.button("✅ Valider", key=f"validate_rail_{idx}", on_click=add_rail_callback,
+                                  args=(idx,), use_container_width=True, type="primary")
                     for _rk, _rz in enumerate(cabinet_rails(selected_cab)):
                         c_r1, c_r2 = st.columns([3, 1])
-                        c_r1.write(f"Tringle {_rk + 1} : longueur {_rz['x_max'] - _rz['x_min']:.0f} mm "
-                                   f"(X:{_rz['x_min']:.0f}-{_rz['x_max']:.0f}mm, Y:{_rz['y_min']:.0f}-{_rz['y_max']:.0f}mm)")
-                        c_r2.button("Supprimer 🗑️", key=f"del_rail_{idx}_{_rk}", on_click=delete_rail_callback,
+                        c_r1.write(f"Tringle {_rk + 1} : {_rz['x_max'] - _rz['x_min']:.0f} mm")
+                        c_r2.button("🗑️", key=f"del_rail_{idx}_{_rk}", on_click=delete_rail_callback,
                                     args=(idx, _rk), use_container_width=True)
 
                 with t_div:
@@ -4575,7 +4588,11 @@ with col2:
             l_coords = [abs_origins[i][0] for i in range(len(scene))]; min_L = min(l_coords); max_L = max([abs_origins[i][0] + scene[i]['dims']['L_raw']*unit_factor for i in range(len(scene))])
             min_W = min([abs_origins[i][1] for i in range(len(scene))]); max_W = max([abs_origins[i][1] + scene[i]['dims']['W_raw']*unit_factor for i in range(len(scene))])
             fh = st.session_state.foot_height * unit_factor
-            for x in [min_L+0.05, max_L-0.05]:
+            _x_l, _x_r = min_L + 0.05, max_L - 0.05
+            _n_mid = int(st.session_state.get('extra_feet_rows', 0) or 0) \
+                if (st.session_state.get('extra_feet') and (max_L - min_L) / unit_factor > 1000.0) else 0
+            _feet_x = [_x_l + (_x_r - _x_l) * k / (_n_mid + 1) for k in range(_n_mid + 2)]
+            for x in _feet_x:
                 for y in [min_W+0.05, max_W-0.05]:
                     fig3d.add_trace(cylinder_mesh_for((x, y, -fh), fh, 0.02, color='#333', showlegend=False))
 

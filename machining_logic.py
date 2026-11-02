@@ -1737,6 +1737,22 @@ RAIL_SECTION_H_MM = 30.0
 RAIL_SECTION_D_MM = 15.0
 
 
+def scene_floor_width_mm(scene_cabinets):
+    """Largeur totale (mm) du meuble, de l'extrémité gauche à la droite."""
+    if not scene_cabinets:
+        return 0.0
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    x0 = min(o[0] for o in origins)
+    x1 = max(o[0] + float(c['dims']['L_raw']) for o, c in zip(origins, scene_cabinets))
+    return x1 - x0
+
+
+def default_extra_feet_rows(width_mm):
+    """Rangées de pieds intermédiaires par défaut : un appui au moins tous les mètres."""
+    import math
+    return max(1, math.ceil(float(width_mm) / 1000.0) - 1)
+
+
 def cabinet_rails(cabinet):
     """Tringles du caisson : [{'x_min', 'x_max', 'y_min', 'y_max'}] en mm
     (zone d'accueil, repère caisson, y depuis le bas du caisson)."""
