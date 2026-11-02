@@ -2092,6 +2092,11 @@ def update_vertical_shelf_material(shelf_index):
         if 'vertical_shelves' in cabinet and shelf_index < len(cabinet['vertical_shelves']):
             cabinet['vertical_shelves'][shelf_index]['material'] = st.session_state[widget_key]
 
+def start_rail_placement_callback(cab_idx):
+    """Démarre la pose d'une tringle : aperçu 3D dans la zone choisie jusqu'à validation."""
+    st.session_state['pending_placement'] = {'kind': 'rail', 'cabinet_index': cab_idx, 'props': {}}
+
+
 def add_rail_callback(cab_idx):
     """Ajoute une tringle dans la zone choisie (`rail_zone_<cab_idx>`)."""
     scene = st.session_state.get('scene_cabinets', [])
@@ -2102,7 +2107,7 @@ def add_rail_callback(cab_idx):
     zone_id = st.session_state.get(f"rail_zone_{cab_idx}")
     zones = calculate_all_zones_2d(cabinet, include_all_elements=False)
     zone = next((z for z in zones if z['id'] == zone_id), None)
-    st.session_state[f"rail_pending_{cab_idx}"] = False
+    st.session_state['pending_placement'] = None
     if zone is None:
         return
     cabinet.setdefault('rails', []).append({'zone_coords': {

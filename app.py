@@ -3013,16 +3013,19 @@ with col1:
                     
                     st.markdown("---")
                     st.markdown("#### Tringles")
-                    _rail_pending_key = f"rail_pending_{idx}"
-                    if not st.session_state.get(_rail_pending_key):
+                    _rail_pending = st.session_state.get('pending_placement')
+                    _rail_pending = _rail_pending if (_rail_pending and _rail_pending.get('kind') == 'rail'
+                                                      and _rail_pending.get('cabinet_index') == idx) else None
+                    if _rail_pending is None:
                         st.button("➕ Ajouter une tringle", key=f"add_rail_{idx}", use_container_width=True,
-                                  on_click=lambda k=_rail_pending_key: st.session_state.__setitem__(k, True))
+                                  on_click=start_rail_placement_callback, args=(idx,))
                     else:
                         _rail_zones = calculate_all_zones_2d(selected_cab, include_all_elements=False)
                         _rz_labels = {z['id']: f"{z['label']} (X:{z['x_min']:.0f}-{z['x_max']:.0f}mm, Y:{z['y_min']:.0f}-{z['y_max']:.0f}mm)"
                                       for z in _rail_zones}
-                        st.selectbox("Zone de la tringle", options=list(_rz_labels), format_func=lambda z: _rz_labels[z],
-                                     key=f"rail_zone_{idx}")
+                        _rail_pending['props']['zone_id'] = st.selectbox(
+                            "Zone de la tringle", options=list(_rz_labels), format_func=lambda z: _rz_labels[z],
+                            key=f"rail_zone_{idx}")
                         st.button("✅ Valider", key=f"validate_rail_{idx}", on_click=add_rail_callback,
                                   args=(idx,), use_container_width=True, type="primary")
                     for _rk, _rz in enumerate(cabinet_rails(selected_cab)):
@@ -4390,7 +4393,17 @@ with col2:
                     ))
 
             # Tringles : à mi-profondeur, 60 mm sous le haut de leur zone.
-            for _rz in cabinet_rails(cab_render):
+            # Tringle en cours de pose : aperçu dans la zone choisie (orange, translucide).
+            _rails_draw = [(_rz, False) for _rz in cabinet_rails(cab_render)]
+            if pending and pending.get('kind') == 'rail' and pending.get('cabinet_index') == i:
+                _rp_zone = next((z for z in calculate_all_zones_2d(cab, include_all_elements=False)
+                                 if z['id'] == pending.get('props', {}).get('zone_id')), None)
+                if _rp_zone is not None:
+                    _rails_draw.append((_rp_zone, True))
+                    add_zone_outlines_3d(fig3d, [_rp_zone], o, cab['dims'], unit_factor,
+                                         fill_color="rgba(255,140,0,0.35)", line_color="rgba(255,140,0,1)",
+                                         line_width=6, y_plane_offset=-0.02)
+            for _rz, _r_preview in _rails_draw:
                 _rh = RAIL_SECTION_H_MM * unit_factor
                 _rd = RAIL_SECTION_D_MM * unit_factor
                 fig3d.add_trace(cuboid_mesh_for(
@@ -4398,7 +4411,8 @@ with col2:
                     (o[0] + _rz['x_min'] * unit_factor,
                      o[1] + cab_render['dims']['W_raw'] * unit_factor / 2.0 - _rd / 2.0,
                      o[2] + rail_axis_height(_rz) * unit_factor - _rh / 2.0),
-                    color="#9AA0A6", opacity=1.0, name=f"Tringle {i}", showlegend=False))
+                    color="#FF8C00" if _r_preview else "#9AA0A6", opacity=0.6 if _r_preview else 1.0,
+                    name=f"Tringle {i}", showlegend=False))
 
             if 'joues' in cab_render and cab_render['joues']:
                 JOUES_COLOR = "#C8A96E"
