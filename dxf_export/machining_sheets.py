@@ -68,6 +68,9 @@ LAYERS = {
     "COTES": 1,
     "TEXTES": 7,
     "REPERES": 7,
+    # Lignes de rappel des repères (perçages, rainures, feuillures) : en gris
+    # pour ne pas les confondre avec les traits d'usinage.
+    "LEGENDE": 8,
     "CADRE": 7,
     "VIEWPORTS": 8,
 }
@@ -643,7 +646,7 @@ class _Drawer:
         x, y = hole_xy
         kx, ky = knee_xy
         tx = kx + (-3 * s if to_left else 3 * s)
-        self.msp.add_lwpolyline([self.P(x, y), self.P(kx, ky), self.P(tx, ky)], dxfattribs={"layer": "TEXTES"})
+        self.msp.add_lwpolyline([self.P(x, y), self.P(kx, ky), self.P(tx, ky)], dxfattribs={"layer": "LEGENDE"})
         txt = f"{label}  ({count}x)" if count > 1 else label
         align = TextEntityAlignment.MIDDLE_RIGHT if to_left else TextEntityAlignment.MIDDLE_LEFT
         self.text(txt, tx + (-1 * s if to_left else 1 * s), ky, align=align)
@@ -712,6 +715,19 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
                 clean.append(pt)
         if len(clean) > 1 and abs(clean[0][0] - clean[-1][0]) < 1e-9 and abs(clean[0][1] - clean[-1][1]) < 1e-9:
             clean.pop()
+        # Encoche qui touche le bout de la tranche : l'ancien coin laisse un
+        # aller-retour (trait de la profondeur de l'encoche qui « remonte »).
+        # On retire tout point aligné avec ses deux voisins (demi-tour ou
+        # simple point de passage) : contour fermé, sans trait isolé.
+        changed = True
+        while changed and len(clean) > 3:
+            changed = False
+            for i in range(len(clean)):
+                (ax, ay), (bx, by), (cx_, cy_) = clean[i - 1], clean[i], clean[(i + 1) % len(clean)]
+                if abs((bx - ax) * (cy_ - by) - (by - ay) * (cx_ - bx)) < 1e-9:
+                    clean.pop(i)
+                    changed = True
+                    break
         outline = clean
         msp.add_lwpolyline([D.P(*pt) for pt in outline], close=True, dxfattribs={"layer": "TRANCHES", "color": 7})
         if chants.get(chant_key[edge]):
