@@ -71,6 +71,8 @@ LAYERS = {
     # Lignes de rappel des repères (perçages, rainures, feuillures) : en gris
     # pour ne pas les confondre avec les traits d'usinage.
     "LEGENDE": 8,
+    # Rainures et feuillures (traits, repères et textes) : en bleu.
+    "RAINURES": 5,
     "CADRE": 7,
     "VIEWPORTS": 8,
 }
@@ -688,16 +690,16 @@ class _Drawer:
             h = self.msp.add_hatch(color=7, dxfattribs={"layer": "REPERES"})
             h.paths.add_polyline_path(pts, is_closed=True)
 
-    def callout(self, hole_xy, knee_xy, label, count, to_left=False):
+    def callout(self, hole_xy, knee_xy, label, count, to_left=False, layer="LEGENDE", text_layer="TEXTES"):
         """Repère de perçage : ligne de rappel du trou au coude, palier, texte."""
         s = self.s
         x, y = hole_xy
         kx, ky = knee_xy
         tx = kx + (-3 * s if to_left else 3 * s)
-        self.msp.add_lwpolyline([self.P(x, y), self.P(kx, ky), self.P(tx, ky)], dxfattribs={"layer": "LEGENDE"})
+        self.msp.add_lwpolyline([self.P(x, y), self.P(kx, ky), self.P(tx, ky)], dxfattribs={"layer": layer})
         txt = f"{label}  ({count}x)" if count > 1 else label
         align = TextEntityAlignment.MIDDLE_RIGHT if to_left else TextEntityAlignment.MIDDLE_LEFT
-        self.text(txt, tx + (-1 * s if to_left else 1 * s), ky, align=align)
+        self.text(txt, tx + (-1 * s if to_left else 1 * s), ky, align=align, layer=text_layer)
 
 
 def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
@@ -788,19 +790,23 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
             d = _hole_diameter(h.get("diam_str"), 8.0)
             # Trou vu de bout dans l'épaisseur de la tranche : cercle limité à la tranche.
             D.circle(pos if horizontal else cx_mid, cy_mid if horizontal else pos, min(d, td * 0.8))
+        # Épaisseur réelle de la tranche (dessin agrandi si trop fine) ;
+        # tranche entièrement en feuillure : épaisseur restante.
+        length = Wd if horizontal else Hd
+        full = next((n for n in notches if n[0] <= 1e-6 and n[1] >= length - 1e-6), None)
         for a, b, bot, g in notches:
             positions.extend([a, b])
+            # Tranche entièrement en feuillure : pas de cote de profondeur à
+            # côté (dans le vide de la matière enlevée) ; l'épaisseur restante
+            # est cotée sur la tranche, la profondeur est dans la légende.
+            if full is not None and (a, b) == (full[0], full[1]):
+                continue
             # Profondeur, juste à côté de l'encoche (les bouts de tranche
             # portent déjà les cotes d'épaisseur et d'axe des perçages).
             if horizontal:
                 D.dim((b, face_c), (b, bot), "y", max(a, b) + 5 * s, text=_fmt(g["depth"]))
             else:
                 D.dim((face_c, b), (bot, b), "x", max(a, b) + 5 * s, text=_fmt(g["depth"]))
-
-        # Épaisseur réelle de la tranche (dessin agrandi si trop fine) ;
-        # tranche entièrement en feuillure : épaisseur restante.
-        length = Wd if horizontal else Hd
-        full = next((n for n in notches if n[0] <= 1e-6 and n[1] >= length - 1e-6), None)
         if side == "bottom":
             if full:
                 D.dim((0, y0), (0, full[2]), "y", -6 * s, text=_fmt(sheet.T - full[3]["depth"]))
@@ -811,6 +817,12 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
                 D.dim((x0, Hd), (full[2], Hd), "x", Hd + 6 * s, text=_fmt(sheet.T - full[3]["depth"]))
             else:
                 D.dim((x0, Hd), (x1, Hd), "x", Hd + 6 * s, text=_fmt(sheet.T))
+        # Bords opposés : seule une tranche entièrement en feuillure y reçoit
+        # sa cote d'épaisseur restante (sinon c'est la même qu'en face).
+        elif side == "top" and full:
+            D.dim((0, full[2]), (0, y1), "y", -6 * s, text=_fmt(sheet.T - full[3]["depth"]))
+        elif side == "right" and full:
+            D.dim((full[2], Hd), (x1, Hd), "x", Hd + 6 * s, text=_fmt(sheet.T - full[3]["depth"]))
 
         if not positions:
             continue
@@ -858,29 +870,30 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
             m = ((a[0] + b[0]) / 2.0) if horizontal else ((a[1] + b[1]) / 2.0)
             dm = face_c + inward * g["depth"] / sheet.T * td / 2.0
             label = _groove_label(g)
+            blue = {"layer": "RAINURES", "text_layer": "RAINURES"}
             if side == "bottom":
-                D.callout((m, dm), (m + 4 * s, y0 - (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), label, 1)
+                D.callout((m, dm), (m + 4 * s, y0 - (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), label, 1, **blue)
             elif side == "top":
-                D.callout((m, dm), (m + 4 * s, y1 + (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), label, 1)
+                D.callout((m, dm), (m + 4 * s, y1 + (DIM_ROW + extra + DIM_STEP * (1 + k)) * s), label, 1, **blue)
             elif side == "left":
                 D.callout((dm, m), (x0 - (DIM_ROW + extra + DIM_STEP) * s, m + 4 * s + k * DIM_STEP * s),
-                          label, 1, to_left=True)
+                          label, 1, to_left=True, **blue)
             else:
                 D.callout((dm, m), (x1 + (DIM_ROW + extra + DIM_STEP) * s, m + 4 * s + k * DIM_STEP * s),
-                          label, 1)
+                          label, 1, **blue)
 
     # --- Rainures en face (débouchantes, toute la longueur) ----------------------
     for g in sheet.grooves():
         for y in (g["y0"], g["y1"]):
             a, b = sheet.tr(0, y), sheet.tr(sheet.L, y)
-            msp.add_line(D.P(*a), D.P(*b), dxfattribs={"layer": "USINAGE", "color": 7})
+            msp.add_line(D.P(*a), D.P(*b), dxfattribs={"layer": "RAINURES"})
         # Libellé côté intérieur de la pièce (loin du bord de référence).
         if g["back"]:
             tx, ty = sheet.tr(sheet.L / 2.0, g["y0"] - 3 * s)
-            t = D.text(_groove_label(g), tx, ty, align=TextEntityAlignment.TOP_CENTER)
+            t = D.text(_groove_label(g), tx, ty, align=TextEntityAlignment.TOP_CENTER, layer="RAINURES")
         else:
             tx, ty = sheet.tr(sheet.L / 2.0, g["y1"] + 3 * s)
-            t = D.text(_groove_label(g), tx, ty, align=TextEntityAlignment.BOTTOM_CENTER)
+            t = D.text(_groove_label(g), tx, ty, align=TextEntityAlignment.BOTTOM_CENTER, layer="RAINURES")
         if sheet.rotated:
             t.dxf.rotation = 90
 
@@ -986,7 +999,7 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
         R = REBATE_WIDTH
         for x in (R, sheet.L - R):
             a, b = sheet.tr(x, 0), sheet.tr(x, sheet.W)
-            D.line(a[0], a[1], b[0], b[1], layer="CONTOUR")
+            D.line(a[0], a[1], b[0], b[1], layer="RAINURES")
         a = sheet.tr(0, sheet.W)
         b = sheet.tr(R, sheet.W)
         if not sheet.rotated:
