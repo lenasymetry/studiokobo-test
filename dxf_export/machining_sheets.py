@@ -509,7 +509,31 @@ def _choose_scale(sheet: _Sheet) -> float:
         if (maxx - minx) <= avail_w * s + 1e-6 and (maxy - miny) <= avail_h * s + 1e-6:
             break
         s *= 1.02
+    # Règle : TOUT ce qui est tracé (pièce, tranches, cotes, repères et
+    # légendes) doit être sur la feuille. L'estimation ci-dessus ne connaît pas
+    # la longueur réelle de chaque légende : on mesure le dessin réel et on
+    # élargit le cadrage tant qu'il dépasse.
+    for _ in range(12):
+        minx, miny, maxx, maxy = _measured_extents(sheet, s)
+        need = max((maxx - minx) / avail_w, (maxy - miny) / avail_h)
+        if need <= s + 1e-6:
+            break
+        s = need * 1.01
     return max(s, 1e-3)
+
+
+def _measured_extents(sheet: _Sheet, s: float):
+    """Encombrement RÉEL du dessin de la pièce à l'échelle s (repère du
+    dessin, origine en bas à gauche de la face) : tracé à blanc dans un
+    document temporaire, puis mesuré."""
+    from ezdxf import bbox
+    msp = _setup_doc().modelspace()
+    _draw_sheet(sheet, msp, 0.0, 0.0, s)
+    box = bbox.extents(msp, fast=False)
+    if not box.has_data:
+        return _extents(sheet, s)
+    pad = 2.0 * s
+    return (box.extmin.x - pad, box.extmin.y - pad, box.extmax.x + pad, box.extmax.y + pad)
 
 
 # =============================================================================
@@ -1026,7 +1050,8 @@ def export_machining_sheets_dxf(plans: List[dict], project_info: Optional[dict] 
     for i, plan in enumerate(plans, start=1):
         sheet = _Sheet(plan)
         s = _choose_scale(sheet)
-        minx, miny, maxx, maxy = _extents(sheet, s)
+        # Centrage sur l'encombrement réel (légendes comprises).
+        minx, miny, maxx, maxy = _measured_extents(sheet, s)
         view_w = vp_w * s
         view_h = vp_h * s
         slot_margin = max(view_w, view_h)          # vide de sécurité entre emplacements
