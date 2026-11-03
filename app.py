@@ -106,6 +106,7 @@ from machining_logic import (
     format_plinthe_labels,
     carcass_piece_dims,
     drawer_piece_dims,
+    applique_drawer_conflicts,
     legrabox_inner_depth,
     legrabox_nl_options,
     legrabox_nominal_length,
@@ -2616,6 +2617,7 @@ with col1:
                         c_ok, c_cancel = _pending_box.columns(2)
                         if c_ok.button("Valider la position", key=f"pending_drawer_validate_{idx}", use_container_width=True, type="primary"):
                             selected_cab.setdefault('drawers', [])
+                            _n_drawers_before = len(selected_cab['drawers'])
                             # IMPORTANT : Recalculer les zones au moment de la validation (elles ont pu changer)
                             all_zones_2d_sel_final = calculate_all_zones_2d(selected_cab, include_all_elements=False)
                             stack_count = int(p.get('stack_count', 1)) if is_stack_mode else 1
@@ -2662,8 +2664,22 @@ with col1:
                                             'y_max': zone['y_max']
                                         }
                                     selected_cab['drawers'].append(d_copy)
-                            st.session_state['pending_placement'] = None
-                            _placement_done = True
+                            # Deux tiroirs côte à côte ne partagent jamais un montant
+                            # secondaire simple : leurs façades en applique se chevaucheraient.
+                            _conflicts = [
+                                c for c in applique_drawer_conflicts(selected_cab, all_zones_2d_sel_final)
+                                if max(c) >= _n_drawers_before
+                            ]
+                            if _conflicts:
+                                del selected_cab['drawers'][_n_drawers_before:]
+                                _pending_box.error(
+                                    "Impossible de poser ce tiroir : un tiroir est déjà posé de l'autre côté "
+                                    "du montant secondaire simple. Deux tiroirs en applique côte à côte doivent "
+                                    "être séparés par un double montant."
+                                )
+                            else:
+                                st.session_state['pending_placement'] = None
+                                _placement_done = True
                         if c_cancel.button("Annuler", key=f"pending_drawer_cancel_{idx}", use_container_width=True):
                             st.session_state['pending_placement'] = None
                             _placement_done = True
@@ -2676,6 +2692,12 @@ with col1:
                         all_zones_2d_drawers = calculate_all_zones_2d(selected_cab, include_all_elements=False)
                         zone_options_drawers = [None] + [z['id'] for z in all_zones_2d_drawers]
                         zone_labels_drawers = ["Tout le caisson"] + [f"{z['label']} (X:{z['x_min']:.0f}-{z['x_max']:.0f}mm, Y:{z['y_min']:.0f}-{z['y_max']:.0f}mm)" for z in all_zones_2d_drawers]
+                        for _a, _b in applique_drawer_conflicts(selected_cab, all_zones_2d_drawers):
+                            st.error(
+                                f"Tiroirs {_a+1} et {_b+1} : côte à côte de part et d'autre d'un montant "
+                                f"secondaire simple, leurs façades en applique se chevauchent. "
+                                f"Remplacez-le par un double montant."
+                            )
                         
                         for i, d in enumerate(selected_cab['drawers']):
                             current_zone = d.get('zone_id', None)

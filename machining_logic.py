@@ -1322,17 +1322,13 @@ def drawer_slide_hole_xs(cabinet, drp):
     return legrabox_slide_hole_xs(nl, legrabox_load(drp, nl))
 
 
-# Façade de tiroir en applique : jeu au bord du caisson, et joint entre deux
-# façades voisines de part et d'autre d'un montant secondaire / étagère verticale.
-DRAWER_FACE_EDGE_GAP_MM = 2.0
-DRAWER_FACE_JOINT_MM = 2.0
+# Façade de tiroir en applique : jeu entre la façade et le bord extérieur de
+# chaque montant qui tient le tiroir.
+DRAWER_FACE_EDGE_GAP_MM = 1.0
 
 
-def _separator_block_at(cabinet, x, face, tol=1.0):
-    """Bloc de montants secondaires / étagères verticales dont la face `face`
-    ('left' / 'right') est en `x` (repère caisson) : (x_gauche, x_droite) du
-    bloc, sinon None. Des panneaux qui se touchent (double montant) forment un
-    seul bloc."""
+def _vertical_separators(cabinet):
+    """Montants secondaires et étagères verticales : [(x_gauche, x_droite)]."""
     spans = []
     for el in list(cabinet.get('vertical_dividers') or []) + list(cabinet.get('vertical_shelves') or []):
         if el.get('_preview') or el.get('position_x') is None:
@@ -1340,19 +1336,23 @@ def _separator_block_at(cabinet, x, face, tol=1.0):
         th = float(el.get('thickness', 19.0))
         cx = float(el['position_x'])
         spans.append((cx - th / 2.0, cx + th / 2.0))
-    block = next((sp for sp in spans if abs((sp[0] if face == 'left' else sp[1]) - x) <= tol), None)
-    if block is None:
-        return None
-    lo, hi = block
-    grown = True
-    while grown:
-        grown = False
-        for a, b in spans:
-            if abs(b - lo) <= tol and a < lo:
-                lo, grown = a, True
-            elif abs(a - hi) <= tol and b > hi:
-                hi, grown = b, True
-    return lo, hi
+    return spans
+
+
+def _separator_at(cabinet, x, face, tol=1.0):
+    """Montant secondaire / étagère verticale dont la face `face` ('left' /
+    'right') est en `x` (repère caisson) : (x_gauche, x_droite), sinon None."""
+    for sp in _vertical_separators(cabinet):
+        if abs((sp[0] if face == 'left' else sp[1]) - x) <= tol:
+            return sp
+    return None
+
+
+def _is_single_separator(cabinet, sp, tol=1.0):
+    """Montant secondaire simple : aucun autre panneau ne le touche (sinon
+    c'est un double montant)."""
+    return not any(o is not sp and (abs(o[1] - sp[0]) <= tol or abs(o[0] - sp[1]) <= tol)
+                   for o in _vertical_separators(cabinet))
 
 
 def drawer_opening_span(cabinet, drp, zones):
@@ -1372,21 +1372,45 @@ def drawer_opening_span(cabinet, drp, zones):
 
 
 def drawer_face_span(cabinet, drp, zones):
-    """Emprise X (x0, x1) de la façade d'un tiroir, repère caisson.
+    """Emprise X (x0, x1) de la façade d'un tiroir en applique, repère caisson.
 
-    Côté montant principal : la façade couvre le montant, à 2 mm du bord du
-    caisson. Côté montant secondaire / étagère verticale : elle s'arrête au
-    milieu de celui-ci moins 1 mm, pour laisser 2 mm de joint avec la façade
-    du tiroir voisin. Double montant (panneaux qui se touchent) : même règle au
-    milieu du bloc, chaque façade couvre son montant. Tiroir seul sur toute la
-    largeur : largeur - 4 mm."""
+    La façade couvre les deux montants qui tiennent le tiroir et s'arrête à
+    1 mm de leur bord extérieur : montant principal -> 1 mm du bord du
+    caisson ; double montant secondaire -> 1 mm du milieu (joint de 2 mm avec
+    la façade voisine). Deux tiroirs en applique ne partagent jamais un
+    montant secondaire simple (voir `applique_drawer_conflicts`)."""
     t_lr = float((cabinet.get('dims', {}) or {}).get('t_lr_raw', 19.0))
     x_lo, x_hi = drawer_opening_span(cabinet, drp, zones)
-    block = _separator_block_at(cabinet, x_lo, 'right')
-    x0 = ((block[0] + block[1]) / 2.0 + DRAWER_FACE_JOINT_MM / 2.0) if block else (x_lo - t_lr + DRAWER_FACE_EDGE_GAP_MM)
-    block = _separator_block_at(cabinet, x_hi, 'left')
-    x1 = ((block[0] + block[1]) / 2.0 - DRAWER_FACE_JOINT_MM / 2.0) if block else (x_hi + t_lr - DRAWER_FACE_EDGE_GAP_MM)
+    sp = _separator_at(cabinet, x_lo, 'right')
+    x0 = (sp[0] if sp else x_lo - t_lr) + DRAWER_FACE_EDGE_GAP_MM
+    sp = _separator_at(cabinet, x_hi, 'left')
+    x1 = (sp[1] if sp else x_hi + t_lr) - DRAWER_FACE_EDGE_GAP_MM
     return x0, max(x0, x1)
+
+
+def applique_drawer_conflicts(cabinet, zones):
+    """Tiroirs posés côte à côte de part et d'autre d'un montant secondaire
+    SIMPLE : leurs façades en applique se chevaucheraient. [(i, j)] indices
+    (dans cabinet['drawers']) des tiroirs en conflit ; il faut un double
+    montant entre eux. Toutes les façades sont débitées en applique, sauf
+    celles des tiroirs à l'anglaise (posées à l'intérieur)."""
+    drawers = cabinet.get('drawers') or []
+    info = []
+    for i, d in enumerate(drawers):
+        if d.get('_preview') or d.get('drawer_system') == 'ANGLAISE':
+            continue
+        x_lo, x_hi = drawer_opening_span(cabinet, d, zones)
+        y0 = float(d.get('drawer_bottom_offset', 0.0))
+        info.append((i, x_lo, x_hi, y0, y0 + float(d.get('drawer_face_H_raw', 150.0))))
+    conflicts = []
+    for i, _, x_hi, y0, y1 in info:
+        sp = _separator_at(cabinet, x_hi, 'left')
+        if sp is None or not _is_single_separator(cabinet, sp):
+            continue
+        for j, x_lo2, _, v0, v1 in info:
+            if j != i and abs(x_lo2 - sp[1]) <= 1.0 and min(y1, v1) - max(y0, v0) > 0.0:
+                conflicts.append((i, j))
+    return conflicts
 
 
 def drawer_piece_dims(cabinet, drp, zones):
