@@ -1598,12 +1598,16 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                                 touches_left_face = abs(zone_x_max - div_left_edge) < 1.0
                                 touches_right_face = abs(zone_x_min - div_right_edge) < 1.0
                                 
+                                # Même vis que sur les montants principaux. Face 1/2
+                                # (gauche) : l'avant est à x = profondeur du montant,
+                                # comme les charnières et étagères de cette face.
                                 if touches_left_face:
+                                    _dw = _divider_depth(cab, div_idx, W_inner)
                                     for x_s in x_slide_holes:
-                                        divider_element_holes_left[div_idx].append({'type':'vis','x':x_s,'y':y_slide,'diam_str':"⌀3"})
+                                        divider_element_holes_left[div_idx].append({'type':'vis','x':_dw - x_s,'y':y_slide,'diam_str':"⌀5/12"})
                                 if touches_right_face:
                                     for x_s in x_slide_holes:
-                                        divider_element_holes_right[div_idx].append({'type':'vis','x':x_s,'y':y_slide,'diam_str':"⌀3"})
+                                        divider_element_holes_right[div_idx].append({'type':'vis','x':x_s,'y':y_slide,'diam_str':"⌀5/12"})
                     else:
                         # Tiroir sur tout le caisson : trous sur les deux montants principaux
                         for x_s in x_slide_holes:
