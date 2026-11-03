@@ -21,6 +21,7 @@ from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden
                              get_door_vertical_geometry, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width,
                              cabinet_joue_dims, is_hinge_post, shelf_front_setback,
+                             drawer_face_span, calculate_all_zones_2d,
                              HINGE_POST_DEPTH_MM, get_plinthe_groups, feet_need_plinthe,
                              format_plinthe_labels)
 
@@ -587,26 +588,25 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
                 add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], _jy, oz - _jt, _jl, _jw, _jt)
 
         # ── Façades de tiroir ───────────────────────────────────────────
+        # Emprise = feuille de débit (drawer_face_span), zones calculées sur
+        # la largeur utile comme le débit : un tiroir posé dans une zone a la
+        # largeur de sa zone, pas celle du meuble.
+        # (L a déjà le fileur déduit : on ne le retire pas une 2e fois.)
+        _cab_zones = dict(cabinet, dims=dict(cabinet.get("dims", {}) or {}, L_raw=L),
+                          door_props=dict(cabinet.get("door_props", {}) or {}, fileur_width=0))
+        try:
+            _drawer_zones = calculate_all_zones_2d(_cab_zones, include_all_elements=False)
+        except Exception:
+            _drawer_zones = []
         for j, drp in enumerate(cabinet.get("drawers", [])):
-            gap      = float(drp.get("drawer_gap",          2.0))
             face_h   = float(drp.get("drawer_face_H_raw", 150.0))
             face_th  = float(drp.get("drawer_face_thickness", 19.0))
             bot_z    = oz + float(drp.get("drawer_bottom_offset", 0.0))
             d_y      = oy - face_th   # en façade, avant le caisson
 
-            is_applique = bool(drp.get("_applique_mode", False))
-
-            if bool(drp.get("_use_explicit_x_bounds")) and drp.get("x_left_mm") is not None and drp.get("x_right_mm") is not None:
-                d_x = ox + float(drp.get("x_left_mm", 0.0))
-                d_w = max(0.0, float(drp.get("x_right_mm", 0.0)) - float(drp.get("x_left_mm", 0.0)))
-            elif is_applique:
-                # Mode EN APPLIQUE : la façade recouvre toute la largeur du caisson (- 4 mm de jeu)
-                d_w = max(0.0, L - 4.0)
-                d_x = ox + 2.0
-            else:
-                # Largeur : utiliser la largeur intérieure par défaut
-                d_w = L - 2 * tl - 2 * gap
-                d_x = ox + tl + gap
+            _fx0, _fx1 = drawer_face_span(_cab_zones, drp, _drawer_zones)
+            d_x = ox + _fx0
+            d_w = max(0.0, _fx1 - _fx0)
 
             add_panel(cab_node,
                       f"Façade Tiroir {j+1} – {cab_label}",

@@ -1322,6 +1322,59 @@ def drawer_slide_hole_xs(cabinet, drp):
     return legrabox_slide_hole_xs(nl, legrabox_load(drp, nl))
 
 
+# Façade de tiroir en applique : jeu au bord du caisson, et joint entre deux
+# façades voisines de part et d'autre d'un montant secondaire / étagère verticale.
+DRAWER_FACE_EDGE_GAP_MM = 2.0
+DRAWER_FACE_JOINT_MM = 2.0
+
+
+def _separator_thickness_at(cabinet, x, face, tol=1.0):
+    """Épaisseur du montant secondaire ou de l'étagère verticale dont la face
+    `face` ('left' / 'right') est en `x` (repère caisson), sinon None."""
+    elements = list(cabinet.get('vertical_dividers') or []) + list(cabinet.get('vertical_shelves') or [])
+    for el in elements:
+        if el.get('_preview') or el.get('position_x') is None:
+            continue
+        th = float(el.get('thickness', 19.0))
+        cx = float(el['position_x'])
+        x_face = cx - th / 2.0 if face == 'left' else cx + th / 2.0
+        if abs(x_face - x) <= tol:
+            return th
+    return None
+
+
+def drawer_opening_span(cabinet, drp, zones):
+    """Ouverture du tiroir (x_min, x_max), repère caisson : entre les faces
+    des montants qui l'encadrent. Bornes explicites (import web), sinon zone,
+    sinon tout le caisson."""
+    dims = cabinet.get('dims', {}) or {}
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    if drp.get('_use_explicit_x_bounds') and drp.get('x_left_mm') is not None and drp.get('x_right_mm') is not None:
+        x0, x1 = float(drp['x_left_mm']), float(drp['x_right_mm'])
+        if x1 > x0:
+            return x0, x1
+    zone = find_element_zone(drp, zones)
+    if zone is not None:
+        return float(zone['x_min']), float(zone['x_max'])
+    return t_lr, carcass_piece_dims(cabinet)['L_eff'] - t_lr
+
+
+def drawer_face_span(cabinet, drp, zones):
+    """Emprise X (x0, x1) de la façade d'un tiroir, repère caisson.
+
+    Côté montant principal : la façade couvre le montant, à 2 mm du bord du
+    caisson. Côté montant secondaire / étagère verticale : elle s'arrête au
+    milieu de celui-ci moins 1 mm, pour laisser 2 mm de joint avec la façade
+    du tiroir voisin. Tiroir seul sur toute la largeur : largeur - 4 mm."""
+    t_lr = float((cabinet.get('dims', {}) or {}).get('t_lr_raw', 19.0))
+    x_lo, x_hi = drawer_opening_span(cabinet, drp, zones)
+    th = _separator_thickness_at(cabinet, x_lo, 'right')
+    x0 = (x_lo - th / 2.0 + DRAWER_FACE_JOINT_MM / 2.0) if th else (x_lo - t_lr + DRAWER_FACE_EDGE_GAP_MM)
+    th = _separator_thickness_at(cabinet, x_hi, 'left')
+    x1 = (x_hi + th / 2.0 - DRAWER_FACE_JOINT_MM / 2.0) if th else (x_hi + t_lr - DRAWER_FACE_EDGE_GAP_MM)
+    return x0, max(x0, x1)
+
+
 def drawer_piece_dims(cabinet, drp, zones):
     """Dimensions des pièces d'un tiroir, source unique (débit + usinage).
 
@@ -1341,19 +1394,19 @@ def drawer_piece_dims(cabinet, drp, zones):
     gap = float(drp.get('drawer_gap', 2.0))
 
     zone = find_element_zone(drp, zones)
-    if zone is not None:
-        z_x0, z_x1 = float(zone['x_min']), float(zone['x_max'])
-    else:
-        z_x0, z_x1 = t_lr, L_eff - t_lr
-    zone_total = (z_x1 - z_x0) if zone is not None else L_eff
-    zone_interior = zone_total - 2.0 * t_lr
+    has_span = zone is not None or bool(drp.get('_use_explicit_x_bounds'))
+    z_x0, z_x1 = drawer_opening_span(cabinet, drp, zones)
+    zone_total = (z_x1 - z_x0) if has_span else L_eff
 
     nl = None
     if system == 'LÉGRABOX':
+        # LW = largeur intérieure de l'ouverture (entre les faces des montants,
+        # principaux ou secondaires) : dos LW - 38, fond LW - 35.
+        lw = z_x1 - z_x0
         box_face = zone_total - 2.0 * gap
-        back_w = max(0.0, zone_interior - 38.0)
+        back_w = max(0.0, lw - 38.0)
         back_h = get_legrabox_specs().get(tech, get_legrabox_specs()['K'])['back_height']
-        bottom_w = max(0.0, zone_interior - 35.0)
+        bottom_w = max(0.0, lw - 35.0)
         # Fond = NL - 10 (dos bois). Caisson trop court pour toute NL :
         # ancien calcul sur la profondeur.
         nl = legrabox_nominal_length(cabinet, drp)
@@ -1371,11 +1424,12 @@ def drawer_piece_dims(cabinet, drp, zones):
         bottom_w = max(0.0, box_face - 49.0)
         bottom_d = W_raw - (20.0 + t_fb)
 
-    # Façade : toute la largeur utile du caisson - 4 mm, posée à 2 mm du bord.
-    face_w = max(0.0, L_eff - 4.0)
-    face_x0 = 2.0
+    # Façade : largeur de son ouverture (voir drawer_face_span) ; tiroir seul
+    # sur toute la largeur -> largeur utile du caisson - 4 mm.
+    face_x0, face_x1 = drawer_face_span(cabinet, drp, zones)
+    face_w = max(0.0, face_x1 - face_x0)
     # Bords du caisson de tiroir (même règle que la façade « zone »).
-    if zone is not None:
+    if has_span:
         box_x0 = z_x0 + gap
         box_x1 = z_x1 - gap
     else:
