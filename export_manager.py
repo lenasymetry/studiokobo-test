@@ -1472,12 +1472,12 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         if zone_x_min is not None and zone_x_max is not None:
                             # Montant gauche principal si la zone commence au montant gauche
                             if abs(zone_x_min - t_lr) < 1.0:
-                                for x in ys_vis_s: holes_mg.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
-                                for x in ys_dowel_s: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
+                                for x in ys_vis_s: holes_mg.append({'type':'vis','x':x,'y':yc_val,'etagere_fixe':True,'diam_str':"⌀3"})
+                                for x in ys_dowel_s: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'etagere_fixe':True,'diam_str':"⌀8/10"})
                             # Montant droit principal si la zone se termine au montant droit
                             if abs(zone_x_max - (L_raw - t_lr)) < 1.0:
-                                for x in ys_vis_s: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'diam_str':"⌀3"})
-                                for x in ys_dowel_s: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'diam_str':"⌀8/10"})
+                                for x in ys_vis_s: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'etagere_fixe':True,'diam_str':"⌀3"})
+                                for x in ys_dowel_s: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'etagere_fixe':True,'diam_str':"⌀8/10"})
                             
                             # Montants secondaires qui touchent cette étagère fixe
                             for div_idx, div in enumerate(cab['vertical_dividers']):
@@ -1491,20 +1491,20 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                                 
                                 if touches_left_face:
                                     for x in ys_vis_s:
-                                        divider_element_holes_left[div_idx].append({'type':'vis','x':W_inner - x,'y':yc_val,'diam_str':"⌀3"})
+                                        divider_element_holes_left[div_idx].append({'type':'vis','x':W_inner - x,'y':yc_val,'etagere_fixe':True,'diam_str':"⌀3"})
                                     for x in ys_dowel_s:
-                                        divider_element_holes_left[div_idx].append({'type':'tourillon','x':W_inner - x,'y':yc_val,'diam_str':"⌀8/10"})
+                                        divider_element_holes_left[div_idx].append({'type':'tourillon','x':W_inner - x,'y':yc_val,'etagere_fixe':True,'diam_str':"⌀8/10"})
                                 if touches_right_face:
                                     for x in ys_vis_s:
-                                        divider_element_holes_right[div_idx].append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
+                                        divider_element_holes_right[div_idx].append({'type':'vis','x':x,'y':yc_val,'etagere_fixe':True,'diam_str':"⌀3"})
                                     for x in ys_dowel_s:
-                                        divider_element_holes_right[div_idx].append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
+                                        divider_element_holes_right[div_idx].append({'type':'tourillon','x':x,'y':yc_val,'etagere_fixe':True,'diam_str':"⌀8/10"})
                         else:
                             # Étagère sur tout le caisson : trous sur les deux montants principaux
-                            for x in ys_vis_s: holes_mg.append({'type':'vis','x':x,'y':yc_val,'diam_str':"⌀3"})
-                            for x in ys_dowel_s: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'diam_str':"⌀8/10"})
-                            for x in ys_vis_s: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'diam_str':"⌀3"})
-                            for x in ys_dowel_s: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'diam_str':"⌀8/10"})
+                            for x in ys_vis_s: holes_mg.append({'type':'vis','x':x,'y':yc_val,'etagere_fixe':True,'diam_str':"⌀3"})
+                            for x in ys_dowel_s: holes_mg.append({'type':'tourillon','x':x,'y':yc_val,'etagere_fixe':True,'diam_str':"⌀8/10"})
+                            for x in ys_vis_s: holes_md.append({'type':'vis','x':_x_md(x),'y':yc_val,'etagere_fixe':True,'diam_str':"⌀3"})
+                            for x in ys_dowel_s: holes_md.append({'type':'tourillon','x':_x_md(x),'y':yc_val,'etagere_fixe':True,'diam_str':"⌀8/10"})
                         
                         # Trous de liaison dans la tranche de l'étagère fixe
                         # Regle: uniquement des tourillons, avec extremites a 25 mm de chaque bord

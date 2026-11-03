@@ -46,6 +46,7 @@ TXT_H = 2.5            # hauteur des textes / cotes
 ARROW = 2.0            # flèches de cote
 DIM_ROW = 7.0          # bord -> 1re ligne de cote
 DIM_STEP = 7.0         # entre deux lignes de cote
+DIM_IN = 6.0           # ligne de trous d'étagère fixe -> sa cote, sur le panneau
 TRANCHE_GAP_DIMS = DIM_ROW + 2 * DIM_STEP   # face -> tranche, côté cotes (2 rangées)
 TRANCHE_GAP = 8.0      # face -> tranche, côté sans cote
 TRANCHE_MIN = 4.0      # épaisseur mini affichée d'une tranche
@@ -826,16 +827,47 @@ def _draw_sheet(sheet: _Sheet, msp, ox: float, oy: float, s: float):
     if face:
         # Une chaîne par axe, étagée pour que les textes ne se chevauchent pas.
         # Une chaîne par rangée de trous, cotée depuis les deux bords de la pièce.
+        # Montant avec étagère(s) fixe(s) ET autres perçages (traverses…) :
+        # l'écart des trous d'une ligne d'étagère est coté sur le panneau, le
+        # long de la ligne, pour ne pas empiler les chaînes à l'extérieur.
+        mixed = any(h.get("etagere_fixe") for h in face) and not all(h.get("etagere_fixe") for h in face)
+
+        def _shelf_line(rows, row_key):
+            # Chaîne le long d'une ligne d'étagère : chaque rangée ne contient
+            # que des trous d'étagère fixe, tous à la hauteur de la même étagère
+            # (sinon c'est la position des étagères, qui reste à l'extérieur).
+            if not mixed:
+                return False
+            for r in rows:
+                hs = [h for h in face if round(h[row_key], 1) == r]
+                if not hs or not all(h.get("etagere_fixe") for h in hs):
+                    return False
+                if len({round(float(h["y"]), 1) for h in hs}) != 1:
+                    return False
+            return True
+
+        def _chain_on_panel(pos, axis, r0, extent, lo, hi):
+            # Côté intérieur de la ligne (vers le milieu du panneau).
+            d = 1.0 if r0 < extent / 2.0 else -1.0
+            D.chain(pos, axis, r0, r0 + d * DIM_IN * s, lo, hi, d)
+
         nx = 0
         for rows, pos in _row_chains(face, "_x", "_y"):
+            if _shelf_line(rows, "_y"):
+                _chain_on_panel(pos, "x", min(rows), Hd, 0, Wd)
+                continue
             base = -(DIM_ROW + nx * ROW_STEP) * s
             used = D.chain(pos, "x", 0, base, 0, Wd, -1)
             nx += used
         ny = 0
         for cols, pos in _row_chains(face, "_y", "_x"):
+            if _shelf_line(cols, "_x"):
+                _chain_on_panel(pos, "y", min(cols), Wd, 0, Hd)
+                continue
             base = -(DIM_ROW + ny * ROW_STEP) * s
             used = D.chain(pos, "y", 0, base, 0, Hd, -1)
             ny += used
+        nx, ny = max(nx, 1), max(ny, 1)
         groups = {}
         for h in face:
             groups.setdefault(h.get("diam_str", ""), []).append(h)
