@@ -511,8 +511,11 @@ def _choose_scale(sheet: _Sheet) -> float:
         s *= 1.02
     # Règle : TOUT ce qui est tracé (pièce, tranches, cotes, repères et
     # légendes) doit être sur la feuille. L'estimation ci-dessus ne connaît pas
-    # la longueur réelle de chaque légende : on mesure le dessin réel et on
-    # élargit le cadrage tant qu'il dépasse.
+    # la longueur réelle des légendes de rainure / feuillure : sur ces
+    # feuilles-là, on mesure le dessin réel et on élargit le cadrage tant
+    # qu'il dépasse (les autres gardent l'estimation, plus rapide).
+    if not _has_groove_legends(sheet):
+        return max(s, 1e-3)
     for _ in range(12):
         minx, miny, maxx, maxy = _measured_extents(sheet, s)
         need = max((maxx - minx) / avail_w, (maxy - miny) / avail_h)
@@ -522,10 +525,28 @@ def _choose_scale(sheet: _Sheet) -> float:
     return max(s, 1e-3)
 
 
+def _has_groove_legends(sheet: _Sheet) -> bool:
+    """La feuille porte des légendes de rainure ou de feuillure (en face ou
+    sur une tranche) : leur encombrement n'est pas estimé, il faut le mesurer."""
+    if sheet.grooves():
+        return True
+    return any(sheet.edge_grooves(e) or sheet.edge_rebates(e)
+               for e in ("avant", "arriere", "gauche", "droit"))
+
+
+def _sheet_extents(sheet: _Sheet, s: float):
+    """Encombrement servant au centrage : mesuré si la feuille a des légendes
+    de rainure / feuillure, estimé sinon."""
+    return _measured_extents(sheet, s) if _has_groove_legends(sheet) else _extents(sheet, s)
+
+
 def _measured_extents(sheet: _Sheet, s: float):
     """Encombrement RÉEL du dessin de la pièce à l'échelle s (repère du
     dessin, origine en bas à gauche de la face) : tracé à blanc dans un
     document temporaire, puis mesuré."""
+    cached = getattr(sheet, "_measured", None)
+    if cached and abs(cached[0] - s) <= 1e-12:
+        return cached[1]
     from ezdxf import bbox
     msp = _setup_doc().modelspace()
     _draw_sheet(sheet, msp, 0.0, 0.0, s)
@@ -533,7 +554,10 @@ def _measured_extents(sheet: _Sheet, s: float):
     if not box.has_data:
         return _extents(sheet, s)
     pad = 2.0 * s
-    return (box.extmin.x - pad, box.extmin.y - pad, box.extmax.x + pad, box.extmax.y + pad)
+    ext = (box.extmin.x - pad, box.extmin.y - pad, box.extmax.x + pad, box.extmax.y + pad)
+    # Le centrage réutilise la mesure faite à l'échelle retenue.
+    sheet._measured = (s, ext)
+    return ext
 
 
 # =============================================================================
@@ -1050,8 +1074,8 @@ def export_machining_sheets_dxf(plans: List[dict], project_info: Optional[dict] 
     for i, plan in enumerate(plans, start=1):
         sheet = _Sheet(plan)
         s = _choose_scale(sheet)
-        # Centrage sur l'encombrement réel (légendes comprises).
-        minx, miny, maxx, maxy = _measured_extents(sheet, s)
+        # Centrage sur l'encombrement réel quand il a été mesuré.
+        minx, miny, maxx, maxy = _sheet_extents(sheet, s)
         view_w = vp_w * s
         view_h = vp_h * s
         slot_margin = max(view_w, view_h)          # vide de sécurité entre emplacements
