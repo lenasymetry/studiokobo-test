@@ -226,13 +226,9 @@ def _build_material_filter_key(materials):
 def _generate_and_store_hole_counts():
     """Génère le comptage vis/tourillons par scène d'usinage et le stocke en session."""
     scene = st.session_state['scene_cabinets']
-    from export_manager import get_all_machining_plans_figures
+    from export_manager import machining_hole_counts
 
-    _, hole_counts = get_all_machining_plans_figures(
-        scene,
-        list(range(len(scene))),
-        include_hole_counts=True,
-    )
+    hole_counts = machining_hole_counts(scene, list(range(len(scene))))
     st.session_state['hole_counts_rows'] = hole_counts
     st.session_state['hole_counts_scene_json'] = _exports_state_json(scene)
 
