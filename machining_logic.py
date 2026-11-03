@@ -1328,19 +1328,31 @@ DRAWER_FACE_EDGE_GAP_MM = 2.0
 DRAWER_FACE_JOINT_MM = 2.0
 
 
-def _separator_thickness_at(cabinet, x, face, tol=1.0):
-    """Épaisseur du montant secondaire ou de l'étagère verticale dont la face
-    `face` ('left' / 'right') est en `x` (repère caisson), sinon None."""
-    elements = list(cabinet.get('vertical_dividers') or []) + list(cabinet.get('vertical_shelves') or [])
-    for el in elements:
+def _separator_block_at(cabinet, x, face, tol=1.0):
+    """Bloc de montants secondaires / étagères verticales dont la face `face`
+    ('left' / 'right') est en `x` (repère caisson) : (x_gauche, x_droite) du
+    bloc, sinon None. Des panneaux qui se touchent (double montant) forment un
+    seul bloc."""
+    spans = []
+    for el in list(cabinet.get('vertical_dividers') or []) + list(cabinet.get('vertical_shelves') or []):
         if el.get('_preview') or el.get('position_x') is None:
             continue
         th = float(el.get('thickness', 19.0))
         cx = float(el['position_x'])
-        x_face = cx - th / 2.0 if face == 'left' else cx + th / 2.0
-        if abs(x_face - x) <= tol:
-            return th
-    return None
+        spans.append((cx - th / 2.0, cx + th / 2.0))
+    block = next((sp for sp in spans if abs((sp[0] if face == 'left' else sp[1]) - x) <= tol), None)
+    if block is None:
+        return None
+    lo, hi = block
+    grown = True
+    while grown:
+        grown = False
+        for a, b in spans:
+            if abs(b - lo) <= tol and a < lo:
+                lo, grown = a, True
+            elif abs(a - hi) <= tol and b > hi:
+                hi, grown = b, True
+    return lo, hi
 
 
 def drawer_opening_span(cabinet, drp, zones):
@@ -1365,13 +1377,15 @@ def drawer_face_span(cabinet, drp, zones):
     Côté montant principal : la façade couvre le montant, à 2 mm du bord du
     caisson. Côté montant secondaire / étagère verticale : elle s'arrête au
     milieu de celui-ci moins 1 mm, pour laisser 2 mm de joint avec la façade
-    du tiroir voisin. Tiroir seul sur toute la largeur : largeur - 4 mm."""
+    du tiroir voisin. Double montant (panneaux qui se touchent) : même règle au
+    milieu du bloc, chaque façade couvre son montant. Tiroir seul sur toute la
+    largeur : largeur - 4 mm."""
     t_lr = float((cabinet.get('dims', {}) or {}).get('t_lr_raw', 19.0))
     x_lo, x_hi = drawer_opening_span(cabinet, drp, zones)
-    th = _separator_thickness_at(cabinet, x_lo, 'right')
-    x0 = (x_lo - th / 2.0 + DRAWER_FACE_JOINT_MM / 2.0) if th else (x_lo - t_lr + DRAWER_FACE_EDGE_GAP_MM)
-    th = _separator_thickness_at(cabinet, x_hi, 'left')
-    x1 = (x_hi + th / 2.0 - DRAWER_FACE_JOINT_MM / 2.0) if th else (x_hi + t_lr - DRAWER_FACE_EDGE_GAP_MM)
+    block = _separator_block_at(cabinet, x_lo, 'right')
+    x0 = ((block[0] + block[1]) / 2.0 + DRAWER_FACE_JOINT_MM / 2.0) if block else (x_lo - t_lr + DRAWER_FACE_EDGE_GAP_MM)
+    block = _separator_block_at(cabinet, x_hi, 'left')
+    x1 = ((block[0] + block[1]) / 2.0 - DRAWER_FACE_JOINT_MM / 2.0) if block else (x_hi + t_lr - DRAWER_FACE_EDGE_GAP_MM)
     return x0, max(x0, x1)
 
 
