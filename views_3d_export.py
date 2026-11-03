@@ -31,7 +31,7 @@ from machining_logic import (calculate_all_zones_2d, get_cabinet_door_height_raw
                              cabinet_door_is_hidden, get_door_vertical_geometry,
                              get_cache_pied_drop, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width,
-                             cabinet_joue_dims, drawer_face_span)
+                             cabinet_joue_dims)
 from project_definitions import get_joue_dimensions
 
 # Résolution du rendu 3D matriciel (pixels par pouce de la zone de vue).
@@ -460,7 +460,7 @@ def _rasterize_scene(project, rect, faces: list, res_x: int, res_y: int) -> np.n
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _drawer_face_x_span(drp: Dict, zones: list, rox: float, render_L: float,
-                        t_montant: float, cab: Optional[Dict] = None) -> tuple:
+                        t_montant: float) -> tuple:
     """Emprise horizontale (x0, x1) de la façade d'un tiroir.
 
     RÈGLE UNIQUE, partagée par le rendu 3D (`_render_cabinet`) et par les
@@ -483,11 +483,6 @@ def _drawer_face_x_span(drp: Dict, zones: list, rox: float, render_L: float,
             side_gap = 2.0
             return zx0 + side_gap, zx0 + side_gap + max(0.0, zw - 2.0 * side_gap)
         if is_applique:
-            # Même largeur que la feuille de débit : la façade s'arrête au
-            # milieu d'un montant secondaire / étagère verticale (joint 2 mm).
-            if cab is not None:
-                fx0, fx1 = drawer_face_span(cab, drp, zones)
-                return rox + fx0, rox + fx1
             side_clearance = 2.0
             w = max(0.0, zw + 2.0 * t_montant - 2.0 * side_clearance)
             x = zx0 - t_montant + side_clearance
@@ -622,7 +617,7 @@ def _cabinet_vertices(cab: Dict, origin=(0.0, 0.0, 0.0)) -> Dict[str, tuple]:
         # même endroit, avec des segments de hauteur nulle.
         faces = []
         for d in drawers_all:
-            x0, x1 = _drawer_face_x_span(d, _zones, ox, L, tl, cab)
+            x0, x1 = _drawer_face_x_span(d, _zones, ox, L, tl)
             z0 = oz + float(d.get("drawer_bottom_offset", 0.0))
             z1 = z0 + float(d.get("drawer_face_H_raw", 150.0))
             faces.append((x0, x1, z0, z1))
@@ -924,7 +919,7 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
         # Emprise horizontale : règle partagée avec les cotations
         # (voir `_drawer_face_x_span`), jamais recalculée séparément.
         dx, dx1 = _drawer_face_x_span(
-            drp, zones_render_without_elements, rox, render_L, t_montant, cab)
+            drp, zones_render_without_elements, rox, render_L, t_montant)
         dW = dx1 - dx
 
         if drawer_system == "ANGLAISE":
@@ -1171,8 +1166,13 @@ def _description_lines(cab: Dict, label: str) -> List[str]:
         for i, drp in enumerate(drawers, 1):
             face_h  = float(drp.get("drawer_face_H_raw", 150.0))
             face_th = float(drp.get("drawer_face_thickness", 19.0))
-            _fx0, _fx1 = drawer_face_span(cab, drp, zones_no_el)
-            face_w = max(0.0, _fx1 - _fx0)
+            zone_id = drp.get("zone_id", None)
+            if zone_id is not None and zone_id < len(zones_no_el):
+                zone = zones_no_el[zone_id]
+                zone_w = float(zone["x_max"]) - float(zone["x_min"])
+                face_w = max(0.0, zone_w - 4.0)
+            else:
+                face_w = max(0.0, L_eff - 4.0)
             lines.append(f"  N°{i} : {int(round(face_w))}×{int(round(face_h))}×{int(round(face_th))} mm")
         lines.append("")
 

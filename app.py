@@ -106,7 +106,6 @@ from machining_logic import (
     format_plinthe_labels,
     carcass_piece_dims,
     drawer_piece_dims,
-    drawer_face_span,
     legrabox_inner_depth,
     legrabox_nl_options,
     legrabox_nominal_length,
@@ -4357,13 +4356,13 @@ with col2:
                             drawer_depth = drp.get('drawer_face_thickness', 19.0) * unit_factor
                             drawer_y_pos = o[1] + anglaise_inset_depth
                         elif is_applique:
-                            # Mode EN APPLIQUE : même emprise que la feuille de débit
-                            # (drawer_face_span) : la façade couvre un montant principal
-                            # (2 mm du bord) et s'arrête au milieu d'un montant secondaire
-                            # / étagère verticale (2 mm de joint avec la façade voisine).
-                            _fx0, _fx1 = drawer_face_span(cab_render, drp, all_zones_2d_drawers)
-                            dW_zone = max(0.0, _fx1 - _fx0) * unit_factor
-                            drawer_x_start = o[0] + _fx0 * unit_factor
+                            # Mode EN APPLIQUE : recouvrir les montants adjacents des deux côtés
+                            # Avec jeu de pose latéral: 2 mm de chaque côté
+                            # Largeur façade = largeur zone + 2x épaisseur montant - 2x jeu
+                            t_montant_mm = float(cab_render['dims'].get('t_lr_raw', 19.0))
+                            side_clearance = 2.0 * unit_factor
+                            dW_zone = max(0.0, zone_width_abs + (2.0 * t_montant_mm * unit_factor) - (2.0 * side_clearance))
+                            drawer_x_start = zone_x_min_abs - (t_montant_mm * unit_factor) + side_clearance
                             # Profondeur : juste l'épaisseur de la face du tiroir
                             drawer_depth = drp.get('drawer_face_thickness', 19.0) * unit_factor
                             # Position Y : les tiroirs sortent AVANT le panneau avant
