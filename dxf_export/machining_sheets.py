@@ -374,7 +374,8 @@ class _Sheet:
                 t = _num(h.get("y"), None)
             if t is None or t < -0.5 or t > self.L + 0.5:
                 continue
-            for e in ("avant", "arriere"):
+            # Perçage d'une seule tranche (pied : tranche basse), sinon les deux.
+            for e in ((h["only_edge"],) if h.get("only_edge") else ("avant", "arriere")):
                 out[e].append({**h, "_t": t})
         for h in self.plan.get("tranche_side_holes") or []:
             t = _num(h.get("y"), None)

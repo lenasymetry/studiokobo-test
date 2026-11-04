@@ -2092,7 +2092,8 @@ with col1:
                         st.session_state.extra_feet_rows = default_extra_feet_rows(_feet_width)
                     st.number_input("Rangées de pieds intermédiaires (avant + arrière)", min_value=1, step=1,
                                     key='extra_feet_rows')
-                    st.caption(f"Total : {4 + 2 * int(st.session_state.extra_feet_rows)} pieds, répartis régulièrement sur la largeur.")
+                    _feet_rule = "placés dans l'axe des montants secondaires" if st.session_state.foot_height == 20.0 else "répartis régulièrement sur la largeur"
+                    st.caption(f"Total : {4 + 2 * int(st.session_state.extra_feet_rows)} pieds, {_feet_rule}.")
 
     with tab_edit:
         st.markdown('<div class="kb-step">Etape 2A - Choix du caisson a modifier</div>', unsafe_allow_html=True)
@@ -4728,7 +4729,8 @@ with col2:
         if st.session_state.has_feet:
             fh = st.session_state.foot_height * unit_factor
             for fx, fy in foot_positions_mm(scene, st.session_state.get('extra_feet', False),
-                                            st.session_state.get('extra_feet_rows', 0)):
+                                            st.session_state.get('extra_feet_rows', 0),
+                                            st.session_state.foot_height):
                 fig3d.add_trace(cylinder_mesh_for((fx * unit_factor, fy * unit_factor, -fh), fh, 20.0 * unit_factor,
                                                   color='#333', showlegend=False))
 

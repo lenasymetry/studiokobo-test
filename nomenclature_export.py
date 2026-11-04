@@ -32,12 +32,13 @@ def _plan_quantity(plan):
 
 def _plan_holes(plan):
     """Trous percés sur la pièce : face + tranches (chaque liste de tranche est
-    percée sur les DEUX tranches opposées). Une face 2/2 est la même pièce que
+    percée sur les DEUX tranches opposées, sauf trou marqué `only_edge`). Une face 2/2 est la même pièce que
     sa face 1/2 : ses tranches, déjà comptées, ne le sont pas une 2e fois."""
     holes = list(plan.get("face_holes") or [])
     if "2/2" not in str(plan.get("title", "")):
         for key in ("tranche_long_holes", "tranche_side_holes"):
-            holes.extend(list(plan.get(key) or []) * 2)
+            for h in plan.get(key) or []:
+                holes.extend([h] if isinstance(h, dict) and h.get("only_edge") else [h, h])
     return [h for h in holes if isinstance(h, dict)]
 
 

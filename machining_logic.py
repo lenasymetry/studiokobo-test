@@ -1081,7 +1081,7 @@ def apply_face_hole_depths(panel_name, face_holes):
     for h in face_holes or []:
         h = dict(h)
         if h.get("type") == "pied":
-            # Trou de pied : ⌀8 profondeur 25, fixé par `foot_traverse_holes`.
+            # Trou de pied : ⌀8 profondeur 25, fixé par `foot_holes_by_piece`.
             out.append(h)
             continue
         raw = str(h.get("diam_str", ""))
@@ -1951,13 +1951,73 @@ DRILLED_FOOT_HEIGHT_MM = 20.0
 FOOT_HOLE_DIAM_STR = "⌀8/25"
 
 
-def foot_positions_mm(scene_cabinets, extra_feet=False, extra_rows=0):
+def _is_drilled_foot(foot_height):
+    return foot_height is not None and abs(float(foot_height) - DRILLED_FOOT_HEIGHT_MM) <= 0.5
+
+
+def _intermediate_foot_supports(scene_cabinets, origins):
+    """Montants qui peuvent porter un pied intermédiaire de 20 mm : [(x de l'axe,
+    y du pied arrière)], repère scène. Montants secondaires posés sur la traverse
+    basse (double montant : un seul des deux) et montants de jonction de caissons.
+    Pied arrière d'un montant secondaire : 50 mm de SON arrière (il s'arrête
+    avant le fond), pour rester à l'écart de son dernier tourillon."""
+    supports = []
+    for i, (cab, (ox, oy, _)) in enumerate(zip(scene_cabinets, origins)):
+        if not cabinet_rests_on_floor(scene_cabinets, i):
+            continue
+        rear = oy + carcass_piece_dims(cab)['W_inner'] - FOOT_EDGE_OFFSET_MM
+        prev = None
+        for div in sorted(cab.get('vertical_dividers') or [], key=lambda d: float(d.get('position_x', 0.0))):
+            if not _foot_divider_stands_on_traverse(div):
+                continue
+            cx, th = float(div['position_x']), float(div.get('thickness', 19.0))
+            if prev is None or cx - prev[0] > (th + prev[1]) / 2.0 + 1.0:
+                supports.append((ox + cx, rear))
+            prev = (cx, th)
+        t_lr = float(cab['dims'].get('t_lr_raw', 19.0))
+        right = ox + carcass_piece_dims(cab)['L_eff']
+        if any(j != i and abs(o[0] - right) < 1.0 and cabinet_rests_on_floor(scene_cabinets, j)
+               for j, o in enumerate(origins)):
+            supports.append((right - t_lr / 2.0, oy + float(cab['dims']['W_raw']) - FOOT_EDGE_OFFSET_MM))
+    return supports
+
+
+def _foot_divider_stands_on_traverse(div):
+    if div.get('_preview') or div.get('position_x') is None or is_hinge_post(div):
+        return False
+    return bool(div.get('_force_full_height')) or div.get('bottom_y') is None or float(div['bottom_y']) <= 0.5
+
+
+def _intermediate_foot_rows(xl, xr, n_rows, supports, default_rear):
+    """Rangées intermédiaires [(x, y du pied arrière)] : chacune va sur le montant
+    libre le plus proche de sa place régulière ; s'il n'y a plus de montant, au
+    milieu du plus grand intervalle restant."""
+    regular = [xl + (xr - xl) * k / (n_rows + 1) for k in range(1, n_rows + 1)]
+    candidates = [s for s in supports if xl + 1.0 < s[0] < xr - 1.0]
+    pairs = sorted((abs(rx - s[0]), r, c) for r, rx in enumerate(regular) for c, s in enumerate(candidates))
+    free_rows, free_supports, rows = set(range(n_rows)), set(range(len(candidates))), []
+    for _, r, c in pairs:
+        if r in free_rows and c in free_supports:
+            free_rows.discard(r)
+            free_supports.discard(c)
+            rows.append(candidates[c])
+    for _ in free_rows:
+        edges = sorted([xl, xr] + [x for x, _ in rows])
+        lo, hi = max(zip(edges, edges[1:]), key=lambda g: g[1] - g[0])
+        rows.append(((lo + hi) / 2.0, default_rear))
+    return sorted(rows)
+
+
+def foot_positions_mm(scene_cabinets, extra_feet=False, extra_rows=0, foot_height=None):
     """Axes des pieds (x, y) en mm dans le repère de la scène (y = 0 à l'avant).
 
     4 pieds aux coins, à `FOOT_EDGE_OFFSET_MM` du bout de la traverse basse
     (le montant extérieur est ajouté) et de ses bords avant / arrière, plus,
     au-delà de 1 m de large, `extra_rows` rangées intermédiaires (avant +
-    arrière) réparties régulièrement. Source unique pour la vue 3D et l'usinage."""
+    arrière) réparties régulièrement. Source unique pour la vue 3D et l'usinage.
+
+    Pieds de 20 mm (vissés) : ceux des côtés sont dans l'axe du montant
+    extérieur, les intermédiaires dans l'axe d'un montant secondaire."""
     if not scene_cabinets:
         return []
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
@@ -1967,36 +2027,55 @@ def foot_positions_mm(scene_cabinets, extra_feet=False, extra_rows=0):
     y0 = min(o[1] for o in origins)
     y1 = max(o[1] + float(c['dims']['W_raw']) for o, c in zip(origins, scene_cabinets))
     # Épaisseur du montant extérieur gauche / droit (caisson en bout de meuble).
-    t_left = float(scene_cabinets[lefts.index(x0)]['dims'].get('t_lr_raw', 19.0))
-    t_right = float(scene_cabinets[rights.index(x1)]['dims'].get('t_lr_raw', 19.0))
-    xl, xr = x0 + t_left + FOOT_EDGE_OFFSET_MM, x1 - t_right - FOOT_EDGE_OFFSET_MM
+    left_cab, right_cab = scene_cabinets[lefts.index(x0)], scene_cabinets[rights.index(x1)]
+    t_left = float(left_cab['dims'].get('t_lr_raw', 19.0))
+    t_right = float(right_cab['dims'].get('t_lr_raw', 19.0))
     n_mid = int(extra_rows or 0) if (extra_feet and (x1 - x0) > 1000.0) else 0
+    y_front, y_rear = y0 + FOOT_EDGE_OFFSET_MM, y1 - FOOT_EDGE_OFFSET_MM
+    if _is_drilled_foot(foot_height):
+        xl = x0 + t_left / 2.0
+        xr = origins[rights.index(x1)][0] + carcass_piece_dims(right_cab)['L_eff'] - t_right / 2.0
+        rows = [(xl, y_rear)] + _intermediate_foot_rows(
+            xl, xr, n_mid, _intermediate_foot_supports(scene_cabinets, origins), y_rear) + [(xr, y_rear)]
+        return [(x, y) for x, rear in rows for y in (y_front, rear)]
+    xl, xr = x0 + t_left + FOOT_EDGE_OFFSET_MM, x1 - t_right - FOOT_EDGE_OFFSET_MM
     xs = [xl + (xr - xl) * k / (n_mid + 1) for k in range(n_mid + 2)]
-    return [(x, y) for x in xs for y in (y0 + FOOT_EDGE_OFFSET_MM, y1 - FOOT_EDGE_OFFSET_MM)]
+    return [(x, y) for x in xs for y in (y_front, y_rear)]
 
 
-def foot_traverse_holes(scene_cabinets, cab_index, foot_height, extra_feet=False, extra_rows=0):
-    """Trous de pieds sous la traverse basse d'un caisson posé au sol, dans le
-    repère de sa feuille (x depuis le montant gauche, y depuis l'avant).
-    Uniquement pour les pieds de 20 mm ; un pied qui tombe sous un montant
-    (jonction de caissons) n'est pas percé dans la traverse."""
-    if abs(float(foot_height or 0.0) - DRILLED_FOOT_HEIGHT_MM) > 0.5:
-        return []
-    if not cabinet_rests_on_floor(scene_cabinets, cab_index):
-        return []
+def foot_holes_by_piece(scene_cabinets, cab_index, foot_height, extra_feet=False, extra_rows=0):
+    """Trous des pieds de 20 mm d'un caisson posé au sol, par pièce :
+    {'traverse': [...], 'mg': [...], 'md': [...], 'dividers': {indice: [...]}}.
+
+    Traverse basse : x depuis le montant gauche, y depuis l'avant (un pied sous un
+    montant secondaire la traverse et se visse dans la tranche du montant).
+    Montants : perçage de la seule tranche basse, x le long de la profondeur."""
+    out = {'traverse': [], 'mg': [], 'md': [], 'dividers': {}}
+    if not _is_drilled_foot(foot_height) or not cabinet_rests_on_floor(scene_cabinets, cab_index):
+        return out
     cab = scene_cabinets[cab_index]
     ox, oy, _ = calculate_origins_recursively(scene_cabinets, 1.0)[cab_index]
-    dims = cab['dims']
-    t_lr = float(dims.get('t_lr_raw', 19.0))
-    L_trav = carcass_piece_dims(cab)['L_traverse']
-    W = float(dims['W_raw'])
-    holes = []
-    for fx, fy in foot_positions_mm(scene_cabinets, extra_feet, extra_rows):
-        x_rel = fx - ox - t_lr
-        y_rel = fy - oy
-        if 0.0 < x_rel < L_trav and 0.0 < y_rel < W:
-            holes.append({'type': 'pied', 'x': x_rel, 'y': y_rel, 'diam_str': FOOT_HOLE_DIAM_STR})
-    return holes
+    t_lr = float(cab['dims'].get('t_lr_raw', 19.0))
+    piece = carcass_piece_dims(cab)
+    W = float(cab['dims']['W_raw'])
+
+    def edge_hole(x):
+        return {'type': 'pied', 'x': x, 'y': 0.0, 'diam_str': FOOT_HOLE_DIAM_STR, 'only_edge': 'avant'}
+
+    for fx, fy in foot_positions_mm(scene_cabinets, extra_feet, extra_rows, foot_height):
+        x_cab, y_rel = fx - ox, fy - oy
+        if not 0.0 < y_rel < W:
+            continue
+        if 0.0 <= x_cab <= t_lr:
+            out['mg'].append(edge_hole(y_rel))
+        elif piece['L_eff'] - t_lr <= x_cab <= piece['L_eff']:
+            out['md'].append(edge_hole(W - y_rel))
+        elif t_lr < x_cab < piece['L_eff'] - t_lr:
+            out['traverse'].append({'type': 'pied', 'x': x_cab - t_lr, 'y': y_rel, 'diam_str': FOOT_HOLE_DIAM_STR})
+            for k, div in enumerate(cab.get('vertical_dividers') or []):
+                if _foot_divider_stands_on_traverse(div) and abs(float(div['position_x']) - x_cab) < 0.5:
+                    out['dividers'].setdefault(k, []).append(edge_hole(y_rel))
+    return out
 
 
 def scene_floor_width_mm(scene_cabinets):
