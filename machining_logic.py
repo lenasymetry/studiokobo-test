@@ -1184,6 +1184,9 @@ LEGRABOX_NL_DEPTH_MARGIN_MM = 3.0
 # La hauteur F n'existe qu'en NL 450 à 650.
 LEGRABOX_NL_MIN_BY_TECH = {'F': 450}
 LEGRABOX_LOADS_KG = (40, 70)
+# Fiche Blum : vis de coulisse au moins 38 mm au-dessus du panneau qui porte le
+# tiroir (traverse basse de 19 : 57 mm du bas du montant).
+LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM = 38.0
 
 
 def legrabox_inner_depth(cabinet):
