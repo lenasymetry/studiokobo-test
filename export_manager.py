@@ -6,7 +6,7 @@ from machining_logic import calculate_hole_positions
 from machining_logic import drawer_slide_hole_xs, legrabox_nominal_length
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import foot_traverse_holes, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_holes, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import foot_traverse_holes, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from project_definitions import get_legrabox_specs
 
 try:
@@ -1630,7 +1630,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
             traverse_face_holes_right = traverse_face_holes_right + _vs_top
             
             # Panneau arrière
-            holes_fond = calculate_back_panel_holes(W_back, H_back, cab)
+            # Aucun usinage sur sa face : les montants secondaires ne sont fixés
+            # qu'aux traverses.
+            holes_fond = []
             fond_t_long, fond_t_cote = calculate_back_panel_edge_holes(W_back, H_back)
             # Tourillons du fond -> montants : mêmes hauteurs, dans l'axe du fond.
             fond_trav_holes = []
