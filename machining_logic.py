@@ -1187,6 +1187,11 @@ LEGRABOX_LOADS_KG = (40, 70)
 # Fiche Blum : vis de coulisse au moins 38 mm au-dessus du panneau qui porte le
 # tiroir (traverse basse de 19 : 57 mm du bas du montant).
 LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM = 38.0
+# Trous de façade : le 1er à 70 mm du bas de la façade (51 de la fiche + 19), pour
+# une façade qui recouvre la traverse. La vis de coulisse reste 13 mm sous ce trou
+# (fiche : 51 - 38), soit 57 mm au-dessus du bas de la façade.
+LEGRABOX_FACE_HOLE_RAISE_MM = 19.0
+LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM = 57.0
 
 
 def legrabox_inner_depth(cabinet):
