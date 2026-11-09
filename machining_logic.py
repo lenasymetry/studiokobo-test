@@ -652,8 +652,11 @@ def hinge_post_traverse_face_holes(div_x, t_lr):
     100 mm -> tourillons à 25 et 75 mm de l'avant, vis à 50 mm."""
     ys_vis, ys_dowel = calculate_hole_positions(HINGE_POST_DEPTH_MM)
     x_rel = float(div_x) - float(t_lr)
+    # `through` : la vis traverse la traverse et mord dans le chant du montant
+    # (voir THROUGH_SCREW_NOTE).
     return ([{'type': 'tourillon', 'x': x_rel, 'y': y, 'diam_str': "⌀8/10"} for y in ys_dowel]
-            + [{'type': 'vis', 'x': x_rel, 'y': y, 'diam_str': "⌀3"} for y in ys_vis])
+            + [{'type': 'vis', 'x': x_rel, 'y': y, 'diam_str': "⌀3", 'through': True}
+               for y in ys_vis])
 
 
 # Étagère mobile : jeu de pose retiré aux cotes d'une étagère fixe, pour
@@ -1064,19 +1067,46 @@ def vertical_shelf_plans(cabinet, cab_idx):
     return plans
 
 
-def apply_face_hole_depths(panel_name, face_holes):
+# Épaisseur de panneau par défaut, utilisée quand la pièce cotée ne la donne
+# pas (profondeur d'un trou traversant).
+DEFAULT_PANEL_THICKNESS_MM = 19.0
+
+# Vis TRAVERSANTES : une vis qui fixe une pièce perpendiculaire traverse le
+# panneau qui la porte et vient mordre dans le chant de l'autre pièce. Son trou
+# doit donc faire toute l'épaisseur du panneau, pas 14 mm. Les trous concernés
+# portent `'through': True` dès leur création ; `apply_face_hole_depths` leur
+# donne la profondeur du panneau.
+THROUGH_SCREW_NOTE = (
+    "vis traversantes : traverse -> montant secondaire, "
+    "montant -> traverse, montant -> étagère fixe"
+)
+
+
+def apply_face_hole_depths(panel_name, face_holes, thickness=None):
     """Profondeurs imposées des perçages de FACE (pas des tranches).
 
+    - Trou marqué `through` : TRAVERSANT, profondeur = épaisseur du panneau
+      (voir `THROUGH_SCREW_NOTE`). Prioritaire sur toutes les règles ci-dessous.
     - Porte : cuvette de charnière ⌀35 et ses 2 vis ⌀8 -> profondeur 13.
     - Joue (face apparente de l'autre côté) : tourillons ⌀8 -> profondeur 12.
     - Toute autre pièce : tout trou ⌀8 -> profondeur 14.
     - Partout : vis ⌀3 -> profondeur 14.
+
+    `thickness` : épaisseur du panneau coté, en mm. Elle sert uniquement aux
+    trous traversants ; à défaut on retombe sur 19 mm, l'épaisseur courante.
     Retourne une nouvelle liste (les dictionnaires d'origine ne sont pas modifiés).
     """
     import re as _re
     name = str(panel_name or "").lower()
     is_door = "porte" in name or "door" in name
     is_joue = "joue" in name
+    try:
+        thru = float(thickness) if thickness is not None else DEFAULT_PANEL_THICKNESS_MM
+    except (TypeError, ValueError):
+        thru = DEFAULT_PANEL_THICKNESS_MM
+    if thru <= 0:
+        thru = DEFAULT_PANEL_THICKNESS_MM
+    thru_txt = f"{thru:g}"
     out = []
     for h in face_holes or []:
         h = dict(h)
@@ -1088,7 +1118,9 @@ def apply_face_hole_depths(panel_name, face_holes):
         m = _re.search(r"(\d+(?:[.,]\d+)?)", raw)
         diam = float(m.group(1).replace(",", ".")) if m else None
         if diam is not None:
-            if is_door and abs(diam - 35.0) < 0.01:
+            if h.get("through"):
+                h["diam_str"] = f"⌀{diam:g}/{thru_txt}"
+            elif is_door and abs(diam - 35.0) < 0.01:
                 h["diam_str"] = "⌀35/13"
             elif is_door and abs(diam - 8.0) < 0.01:
                 h["diam_str"] = "⌀8/13"
