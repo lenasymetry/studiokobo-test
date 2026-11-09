@@ -123,6 +123,7 @@ from machining_logic import (
     foot_positions_mm,
     normalize_vertical_shelves,
     default_extra_feet_rows,
+    stacked_cabinet_pairs,
     rail_axis_height,
     RAIL_SECTION_H_MM,
     RAIL_SECTION_D_MM,
@@ -202,6 +203,7 @@ def _exports_state_json(scene):
         "foot_height": float(st.session_state.get('foot_height', 0.0) or 0.0),
         "extra_feet": bool(st.session_state.get('extra_feet', False)),
         "extra_feet_rows": int(st.session_state.get('extra_feet_rows', 0) or 0),
+        "stack_fixing": bool(st.session_state.get('stack_fixing', False)),
     }, sort_keys=True, ensure_ascii=False)
 
 
@@ -427,6 +429,7 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
             "foot_diameter": st.session_state.get("foot_diameter", 30.0),
             "extra_feet": st.session_state.get("extra_feet", False),
             "extra_feet_rows": st.session_state.get("extra_feet_rows", 1),
+            "stack_fixing": st.session_state.get("stack_fixing", False),
             "scene_cabinets": scene,
         }
         xls_data = create_styled_excel(project_info, export_df, save_data_export)
@@ -2094,6 +2097,22 @@ with col1:
                                     key='extra_feet_rows')
                     _feet_rule = "placés dans l'axe des montants secondaires" if st.session_state.foot_height == 20.0 else "répartis régulièrement sur la largeur"
                     st.caption(f"Total : {4 + 2 * int(st.session_state.extra_feet_rows)} pieds, {_feet_rule}.")
+
+        # Fixation des caissons superposés : proposée seulement quand la scène
+        # comporte réellement un caisson posé sur un autre.
+        _stacked = stacked_cabinet_pairs(st.session_state['scene_cabinets'])
+        if _stacked:
+            st.markdown("##### Fixation des caissons")
+            st.toggle(
+                f"Fixer les caissons superposés entre eux ({len(_stacked)} jonction(s))",
+                key='stack_fixing',
+            )
+            if st.session_state.get('stack_fixing'):
+                st.caption(
+                    "4 vis traversantes dans la traverse haute de chaque caisson "
+                    "porteur, placées sous l'emprise du caisson du dessus et "
+                    "écartées de tout autre perçage."
+                )
 
     with tab_edit:
         st.markdown('<div class="kb-step">Etape 2A - Choix du caisson a modifier</div>', unsafe_allow_html=True)

@@ -131,6 +131,9 @@ def initialize_session_state():
     st.session_state.setdefault('foot_height', 80.0) 
     st.session_state.setdefault('foot_diameter', 30.0)
     st.session_state.setdefault('extra_feet', False)
+    # Fixation de caissons superposés : 4 vis traversantes dans la traverse
+    # haute du caisson du dessous (voir `stack_fixing_holes`).
+    st.session_state.setdefault('stack_fixing', False)
     
     # Pose en 2 temps (prévisualisation -> validation)
     # pending_placement: { kind: 'shelf'|'vertical_divider'|'vertical_shelf', cabinet_index: int, props: dict }
@@ -195,6 +198,7 @@ def load_save_state():
                 st.session_state['foot_height'] = loaded_data.get('foot_height', 80.0)
                 st.session_state['foot_diameter'] = loaded_data.get('foot_diameter', 50.0)
                 st.session_state['extra_feet'] = loaded_data.get('extra_feet', False)
+                st.session_state['stack_fixing'] = loaded_data.get('stack_fixing', False)
                 st.session_state['extra_feet_rows'] = loaded_data.get('extra_feet_rows', 1)
                 st.session_state['scene_cabinets'] = loaded_data.get('scene_cabinets', [])
                 if st.session_state['scene_cabinets']:

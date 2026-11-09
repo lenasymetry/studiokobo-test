@@ -6,7 +6,7 @@ from machining_logic import calculate_hole_positions
 from machining_logic import drawer_slide_hole_xs, legrabox_nominal_length
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from project_definitions import get_legrabox_specs
 
 try:
@@ -1693,7 +1693,13 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 else:
                     plans.append(("Traverse Bas (Tb)", L_trav, W_trav, t_tb, c_tb, traverse_face_holes_left + fond_trav_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_top_traverse', True):
-                plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Haut", c_trav), traverse_face_holes_right + fond_trav_holes, tholes_longue, tholes_cote, None))
+                th_holes = traverse_face_holes_right + fond_trav_holes
+                # Fixation d'un caisson posé sur celui-ci : 4 vis traversantes,
+                # calculées en DERNIER pour pouvoir s'écarter de tous les
+                # perçages déjà présents sur la traverse.
+                if st.session_state.get('stack_fixing', False) and 0 <= cab_idx < len(_scene_all):
+                    th_holes = th_holes + stack_fixing_holes(_scene_all, cab_idx, th_holes, t_lr=t_lr)
+                plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Haut", c_trav), th_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_left_upright', True):
                 c_mg = debit_piece_chants(cab, "Montant Gauche", dict(c_mont, **{"Chant Droit": False}))
                 plans.extend(_upright_plans(cab, "mg", "Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, tranche_holes_mg, foot_pieces['mg']))

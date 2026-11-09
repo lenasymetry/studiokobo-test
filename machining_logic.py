@@ -2116,6 +2116,178 @@ def foot_holes_by_piece(scene_cabinets, cab_index, foot_height, extra_feet=False
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Fixation de deux caissons superposés
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 4 vis traversantes dans la traverse HAUTE du caisson du dessous, qui viennent
+# mordre dans la traverse basse du caisson posé dessus.
+STACK_FIXING_COUNT = 4
+# Retrait des vis par rapport aux bords de la portée commune aux deux caissons.
+STACK_FIXING_INSET_X_MM = 100.0
+STACK_FIXING_INSET_Y_MM = 80.0
+# Distance minimale entre une vis de fixation et TOUT autre perçage de la
+# pièce : exigence métier, ces trous ne doivent tomber sur aucun autre usinage.
+STACK_FIXING_CLEARANCE_MM = 20.0
+# Marge conservée vis-à-vis des bords de la portée commune pendant la recherche.
+STACK_FIXING_EDGE_MARGIN_MM = 35.0
+
+
+def stacked_cabinet_pairs(scene_cabinets):
+    """Jonctions d'empilement de la scène : [(indice du dessous, indice du
+    dessus)]. Sert à n'afficher l'option de fixation que lorsqu'elle a un
+    sens, et à en annoncer le nombre."""
+    if not scene_cabinets:
+        return []
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    pairs = []
+    for i in range(len(scene_cabinets)):
+        j = get_cabinet_above_index(scene_cabinets, i, origins)
+        if j is not None:
+            pairs.append((i, j))
+    return pairs
+
+
+def _stack_overlap_span(scene_cabinets, lower_index, upper_index, origins):
+    """Portée commune aux deux caissons, en repère du caisson du dessous :
+    ((x0, x1), (y0, y1)) en mm depuis son coin avant-gauche. None si les
+    empreintes ne se recouvrent pas assez pour y loger des vis."""
+    low, up = scene_cabinets[lower_index], scene_cabinets[upper_index]
+    lox, loy, _ = origins[lower_index]
+    uox, uoy, _ = origins[upper_index]
+    ld, ud = low.get('dims', {}) or {}, up.get('dims', {}) or {}
+    lL, lW = float(ld.get('L_raw', 0.0)), float(ld.get('W_raw', 0.0))
+    uL, uW = float(ud.get('L_raw', 0.0)), float(ud.get('W_raw', 0.0))
+    x0 = max(lox, uox) - lox
+    x1 = min(lox + lL, uox + uL) - lox
+    y0 = max(loy, uoy) - loy
+    y1 = min(loy + lW, uoy + uW) - loy
+    if x1 - x0 < 2.0 * STACK_FIXING_EDGE_MARGIN_MM:
+        return None
+    if y1 - y0 < 2.0 * STACK_FIXING_EDGE_MARGIN_MM:
+        return None
+    return (x0, x1), (y0, y1)
+
+
+def _stack_fixing_is_clear(x, y, others, clearance=STACK_FIXING_CLEARANCE_MM):
+    """La position est-elle à l'écart de tous les perçages déjà posés ?"""
+    r2 = clearance * clearance
+    for h in others or ():
+        try:
+            dx = float(h.get('x', 0.0)) - x
+            dy = float(h.get('y', 0.0)) - y
+        except (TypeError, ValueError):
+            continue
+        if dx * dx + dy * dy < r2:
+            return False
+    return True
+
+
+def _stack_fixing_forbidden_bands(cab, t_lr):
+    """Bandes de x INTERDITES sur la traverse haute, en repère de la pièce.
+
+    Une vis de fixation se visse par-dessous : son embout et sa tête se
+    trouvent sous la traverse. Tout panneau vertical qui vient s'y appuyer —
+    montant secondaire, étagère verticale — occupe donc la place, même si
+    aucun perçage ne tombe exactement au même point. Vérifier seulement la
+    distance aux autres trous laissait les vis dans l'axe des montants.
+    """
+    bands = []
+    for coll, th_key, default_th in (('vertical_dividers', 'thickness', 19.0),
+                                     ('vertical_shelves', 'thickness', 19.0)):
+        for el in (cab.get(coll) or []):
+            try:
+                x = float(el.get('position_x', 0.0)) - float(t_lr)
+                half = float(el.get(th_key, default_th)) / 2.0
+            except (TypeError, ValueError):
+                continue
+            bands.append((x - half - STACK_FIXING_CLEARANCE_MM,
+                          x + half + STACK_FIXING_CLEARANCE_MM))
+    return bands
+
+
+def _stack_fixing_place(x_nom, y_nom, x_lo, x_hi, y_lo, y_hi, others, bands=()):
+    """Position libre la plus proche de (x_nom, y_nom), dans la fenêtre donnée.
+
+    On décale d'abord le long de la LONGUEUR (axe le plus dégagé), puis en
+    profondeur si besoin : c'est ce qui permet d'éviter les vis du fond, les
+    tourillons de montant secondaire et les perçages d'étagère verticale, qui
+    sont tous alignés sur des trames fixes.
+    """
+    def _out_of_bands(x):
+        return all(not (lo <= x <= hi) for lo, hi in bands)
+
+    for dy in (0.0, 18.0, -18.0, 36.0, -36.0):
+        y = min(max(y_nom + dy, y_lo), y_hi)
+        for dx in [0.0] + [s * step for step in range(6, 151, 6) for s in (1.0, -1.0)]:
+            x = x_nom + dx
+            if not (x_lo <= x <= x_hi):
+                continue
+            if _out_of_bands(x) and _stack_fixing_is_clear(x, y, others):
+                return x, y
+    return None
+
+
+def stack_fixing_holes(scene_cabinets, cab_index, existing_face_holes=(),
+                       t_lr=None, origins=None):
+    """Vis de fixation sur la traverse HAUTE de `cab_index`, s'il porte un
+    caisson. Repère de la traverse : x depuis son extrémité gauche, y depuis
+    l'avant. Liste vide si rien n'est posé dessus.
+
+    Les 4 vis sont traversantes et sont placées dans la portée COMMUNE aux
+    deux caissons — un caisson du dessus plus étroit ou moins profond ne doit
+    pas recevoir de vis dans le vide — puis écartées de tout autre perçage
+    déjà présent sur la traverse (`existing_face_holes`).
+    """
+    if not scene_cabinets or not (0 <= cab_index < len(scene_cabinets)):
+        return []
+    if origins is None:
+        origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    above = get_cabinet_above_index(scene_cabinets, cab_index, origins)
+    if above is None:
+        return []
+    span = _stack_overlap_span(scene_cabinets, cab_index, above, origins)
+    if span is None:
+        return []
+    (x0, x1), (y0, y1) = span
+
+    cab = scene_cabinets[cab_index]
+    if t_lr is None:
+        t_lr = float((cab.get('dims', {}) or {}).get('t_lr_raw', 19.0))
+    # Repère de la FEUILLE de traverse : son bord gauche est la face intérieure
+    # du montant gauche, donc décalé de t_lr par rapport au caisson.
+    x0, x1 = x0 - t_lr, x1 - t_lr
+    piece = carcass_piece_dims(cab)
+    x0, x1 = max(x0, 0.0), min(x1, float(piece['L_traverse']))
+    y0, y1 = max(y0, 0.0), min(y1, float(piece['W_traverse']))
+    if x1 - x0 < 2.0 * STACK_FIXING_EDGE_MARGIN_MM or y1 - y0 < 2.0 * STACK_FIXING_EDGE_MARGIN_MM:
+        return []
+
+    xm, ym = STACK_FIXING_EDGE_MARGIN_MM, STACK_FIXING_EDGE_MARGIN_MM
+    nominal = [
+        (x0 + STACK_FIXING_INSET_X_MM, y0 + STACK_FIXING_INSET_Y_MM),
+        (x1 - STACK_FIXING_INSET_X_MM, y0 + STACK_FIXING_INSET_Y_MM),
+        (x0 + STACK_FIXING_INSET_X_MM, y1 - STACK_FIXING_INSET_Y_MM),
+        (x1 - STACK_FIXING_INSET_X_MM, y1 - STACK_FIXING_INSET_Y_MM),
+    ]
+    bands = _stack_fixing_forbidden_bands(cab, t_lr)
+    placed, out = list(existing_face_holes or ()), []
+    for x_nom, y_nom in nominal[:STACK_FIXING_COUNT]:
+        x_nom = min(max(x_nom, x0 + xm), x1 - xm)
+        y_nom = min(max(y_nom, y0 + ym), y1 - ym)
+        # Les vis déjà posées comptent aussi comme obstacles : deux d'entre
+        # elles ne doivent pas se rejoindre en se décalant l'une vers l'autre.
+        pos = _stack_fixing_place(x_nom, y_nom, x0 + xm, x1 - xm, y0 + ym, y1 - ym,
+                                  placed, bands)
+        if pos is None:
+            continue
+        h = {'type': 'vis', 'x': pos[0], 'y': pos[1], 'diam_str': "⌀3",
+             'through': True, 'fixation_caisson': True}
+        out.append(h)
+        placed.append(h)
+    return out
+
+
 def scene_floor_width_mm(scene_cabinets):
     """Largeur totale (mm) du meuble, de l'extrémité gauche à la droite."""
     if not scene_cabinets:
