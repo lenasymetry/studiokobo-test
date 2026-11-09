@@ -877,26 +877,21 @@ def get_vertical_divider_tranche_holes(W_mont, div_th):
     """
     Calcule les trous sur les tranches (haut et bas) d'un montant secondaire.
     
-    Règle : Même système que les montants principaux (vis + tourillons)
-    - Tourillons : tous les 100 mm avec 25 mm de marge aux bords
-    - Vis : tous les 100 mm également, décalées de 50 mm par rapport aux tourillons
-    
+    Règle : TOURILLONS UNIQUEMENT, tous les 100 mm avec 25 mm de marge aux bords.
+
+    Pas de trou de vis dans ces tranches : la vis d'assemblage est percée
+    TRAVERSANTE dans la traverse (voir `get_traverse_face_holes_for_divider`)
+    et vient mordre directement dans le chant du montant, entre deux
+    tourillons. Un avant-trou ici ne servirait à rien et faisait apparaître
+    des ⌀3 parasites sur la feuille du montant.
+
     IMPORTANT : Pour les tranches longues (haut et bas), la fonction de dessin utilise
     h['x'] comme position le long de la longueur du panneau (qui est W_mont pour un montant).
     """
-    holes = []
-    # Utiliser le même système que pour les montants principaux
-    ys_vis, ys_dowel = calculate_hole_positions(W_mont)
-    
-    # Trous sur les TRANCHES (haut et bas) : vis ⌀3/10
-    # Le système de dessin appliquera ces trous aux deux tranches
+    _, ys_dowel = calculate_hole_positions(W_mont)
     # IMPORTANT : utiliser 'x' pour la position le long de la longueur (W_mont)
-    for y_pos in ys_vis:
-        holes.append({'type': 'vis', 'x': y_pos, 'y': 0, 'diam_str': "⌀3/10"})
-    for y_pos in ys_dowel:
-        holes.append({'type': 'tourillon', 'x': y_pos, 'y': 0, 'diam_str': "⌀8/22"})
-    
-    return holes
+    return [{'type': 'tourillon', 'x': y_pos, 'y': 0, 'diam_str': "⌀8/22"}
+            for y_pos in ys_dowel]
 
 
 def get_vertical_divider_holes(W_raw, h_side, t_tb, div_x, t_lr):
@@ -951,25 +946,28 @@ def get_traverse_face_holes_for_divider(L_trav, div_x, t_lr, t_tb, W_raw, t_fb):
     Calcule les trous sur les faces des traverses pour un montant secondaire.
     
     Règle :
-    - Utilise la même logique que les trous de tourillons sur les tranches des traverses
-    - MAIS adapté à la profondeur réelle du montant secondaire (W - t_fb)
-    - Les montants secondaires ne vont pas jusqu'au fond (profondeur réduite)
-    - Uniquement des tourillons (pas de vis)
+    - Tourillons + vis intercalées, au pas standard de 100 mm.
+    - Les vis sont TRAVERSANTES (`through`) : elles percent la traverse de
+      part en part et viennent mordre dans le chant du montant, qui ne porte
+      donc que des tourillons (voir `get_vertical_divider_tranche_holes`).
+    - Profondeur de référence = celle du montant secondaire, qui s'arrête
+      devant le fond encastré. On la prend sur `FOND_REBATE_MM`, exactement
+      comme `carcass_piece_dims()['W_inner']` qui dimensionne la pièce : la
+      calculer ici sur `t_fb` les désalignait dès que le fond n'avait pas
+      19 mm, et la vis ne serait plus tombée dans le chant du montant.
     """
     holes = []
     # Position relative du montant secondaire
     x_rel = div_x - t_lr
-    
-    # Calculer la profondeur réelle du montant secondaire
-    # Les montants secondaires ont une profondeur de W - t_fb (ne vont pas jusqu'au fond)
-    divider_depth = W_raw - t_fb
-    
-    # Utiliser la logique standard mais avec la profondeur réduite
-    _, ys_dowel = calculate_hole_positions(divider_depth)
-    
+    divider_depth = max(0.0, float(W_raw) - FOND_REBATE_MM)
+
+    ys_vis, ys_dowel = calculate_hole_positions(divider_depth)
+
     for y in ys_dowel:
         holes.append({'type': 'tourillon', 'x': x_rel, 'y': y, 'diam_str': "⌀8/10"})
-    
+    for y in ys_vis:
+        holes.append({'type': 'vis', 'x': x_rel, 'y': y, 'diam_str': "⌀3", 'through': True})
+
     return holes
 
 def get_mounting_holes_for_zone_element(element, zone, cabinet):
