@@ -8,6 +8,7 @@ textes, épaisseurs de trait fines comme sur le DXF).
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from typing import Optional
 
 import ezdxf
@@ -16,8 +17,22 @@ from ezdxf.addons.drawing import Frontend, RenderContext, layout
 from ezdxf.addons.drawing.pymupdf import PyMuPdfBackend
 
 
+def _ensure_fonts() -> None:
+    """Serveur sans police système (Streamlit Cloud) : ezdxf remplace alors chaque
+    texte par un rectangle vide. On lui donne les polices fournies avec matplotlib."""
+    import matplotlib
+    from ezdxf.fonts import fonts
+
+    fm = fonts.font_manager
+    if fm.has_font("DejaVuSans.ttf") or fm.has_font("DejaVu Sans"):
+        return
+    fm.scan_folder(Path(matplotlib.get_data_path()) / "fonts" / "ttf")
+    fm.fallback_font_name = lambda: "DejaVuSans.ttf"
+
+
 def dxf_to_pdf(dxf_bytes: bytes) -> Optional[bytes]:
     """Retourne un PDF multipage (1 page par feuille) ou None si rien à tracer."""
+    _ensure_fonts()
     doc = ezdxf.read(io.StringIO(dxf_bytes.decode("utf-8", errors="replace")))
     ctx = RenderContext(doc)
     out = pymupdf.open()
