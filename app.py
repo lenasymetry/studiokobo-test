@@ -479,7 +479,17 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         rb_data = None
         rb_ok = False
 
+    # PDF des feuilles d'usinage, tracé depuis le DXF (contrôle sans AutoCAD).
+    dwg_pdf_data = None
+    if dwg_ok and dwg_data:
+        try:
+            from dxf_export.pdf_export import dxf_to_pdf
+            dwg_pdf_data = dxf_to_pdf(dwg_data)
+        except Exception as exc:
+            print(f"[PDF] Export PDF des feuilles d'usinage indisponible : {exc}", file=sys.stderr)
+
     st.session_state['exports_dwg_data'] = dwg_data
+    st.session_state['exports_dwg_pdf_data'] = dwg_pdf_data
     st.session_state['exports_dwg_ok'] = bool(dwg_ok)
     st.session_state['exports_dwg_filename'] = dwg_filename
     st.session_state['exports_xls_data'] = xls_data
@@ -502,7 +512,7 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
 
 
 def _build_deliverables_archive(project_name, xls_data, dxf_data, dxf_filename=None, selected_materials=None,
-                                nomenclature_data=None):
+                                nomenclature_data=None, dxf_pdf_data=None):
     """Construit une archive ZIP avec les livrables principaux (Excel + DXF)."""
     if not xls_data or not dxf_data:
         return None, None
@@ -523,6 +533,8 @@ def _build_deliverables_archive(project_name, xls_data, dxf_data, dxf_filename=N
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(xls_name, xls_data)
         zf.writestr(dxf_name, dxf_data)
+        if dxf_pdf_data:
+            zf.writestr(f"Feuilles_usinage_{safe_project}.pdf", dxf_pdf_data)
         if nomenclature_data:
             zf.writestr(f"Nomenclature_{safe_project}.pdf", nomenclature_data)
 
@@ -709,6 +721,7 @@ def _render_exports(all_parts):
     rb_data = st.session_state.get('exports_rb_data')
     rb_ok   = st.session_state.get('exports_rb_ok', False)
     nomenclature_data = st.session_state.get('exports_nomenclature_data')
+    dwg_pdf_data = st.session_state.get('exports_dwg_pdf_data')
     deliverables_zip_data = None
     deliverables_zip_name = None
     if xls_data and dwg_ok and dwg_data:
@@ -718,7 +731,7 @@ def _render_exports(all_parts):
         zip_key = (
             xls_data, dwg_data, dwg_filename,
             st.session_state.project_name, selected_materials_key,
-            nomenclature_data,
+            nomenclature_data, dwg_pdf_data,
         )
         cached_zip = st.session_state.get('exports_zip_cache')
         if not cached_zip or cached_zip[0] != zip_key:
@@ -729,6 +742,7 @@ def _render_exports(all_parts):
                 dxf_filename=dwg_filename,
                 selected_materials=selected_materials_for_generation,
                 nomenclature_data=nomenclature_data,
+                dxf_pdf_data=dwg_pdf_data,
             ))
             st.session_state['exports_zip_cache'] = cached_zip
         _, deliverables_zip_data, deliverables_zip_name = cached_zip
@@ -774,6 +788,12 @@ def _render_exports(all_parts):
                     dwg_filename or f"Plans_{st.session_state.project_name.replace(' ', '_')}.dxf",
                     "application/dxf", use_container_width=True,
                 )
+                if dwg_pdf_data:
+                    st.download_button(
+                        "🖨️ Feuilles d'usinage (.pdf)", dwg_pdf_data,
+                        f"Feuilles_usinage_{st.session_state.project_name.replace(' ', '_')}.pdf",
+                        "application/pdf", use_container_width=True,
+                    )
             else:
                 if dwg_data:
                     try:
