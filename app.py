@@ -479,17 +479,8 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         rb_data = None
         rb_ok = False
 
-    # PDF des feuilles d'usinage, tracé depuis le DXF (contrôle sans AutoCAD).
-    dwg_pdf_data = None
-    if dwg_ok and dwg_data:
-        try:
-            from dxf_export.pdf_export import dxf_to_pdf
-            dwg_pdf_data = dxf_to_pdf(dwg_data)
-        except Exception as exc:
-            print(f"[PDF] Export PDF des feuilles d'usinage indisponible : {exc}", file=sys.stderr)
-
     st.session_state['exports_dwg_data'] = dwg_data
-    st.session_state['exports_dwg_pdf_data'] = dwg_pdf_data
+    st.session_state['exports_dwg_pdf_data'] = None  # PDF à la demande, à refaire
     st.session_state['exports_dwg_ok'] = bool(dwg_ok)
     st.session_state['exports_dwg_filename'] = dwg_filename
     st.session_state['exports_xls_data'] = xls_data
@@ -794,6 +785,15 @@ def _render_exports(all_parts):
                         f"Feuilles_usinage_{st.session_state.project_name.replace(' ', '_')}.pdf",
                         "application/pdf", use_container_width=True,
                     )
+                elif st.button("🖨️ Générer le PDF des feuilles", use_container_width=True,
+                               help="Trace chaque feuille du DXF en PDF (environ 1 à 2 s par feuille)."):
+                    try:
+                        from dxf_export.pdf_export import dxf_to_pdf
+                        with st.spinner("Génération du PDF des feuilles d'usinage…"):
+                            st.session_state['exports_dwg_pdf_data'] = dxf_to_pdf(dwg_data)
+                        st.rerun()
+                    except Exception as exc:
+                        st.warning(f"⚠️ PDF indisponible : {exc}")
             else:
                 if dwg_data:
                     try:
