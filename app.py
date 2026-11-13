@@ -1447,35 +1447,17 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             })
         # Tringles : quincaillerie, pas une planche -> Nomenclature, pas débit.
 
-    # Fusion des lignes strictement identiques (même référence, mêmes dimensions,
-    # même matière, mêmes chants, même usinage) : on cumule la quantité au lieu
-    # de répéter des lignes identiques en quantité 1.
+    # Aucun regroupement : chaque élément a sa propre ligne dans la feuille de
+    # débit (une pièce de quantité 2, comme une porte double, est dédoublée).
     merged_parts = []
-    merged_index = {}
     for part in all_parts:
-        key = (
-            part.get("Référence Pièce", ""),
-            round(float(part.get("Longueur (mm)", 0) or 0), 1),
-            round(float(part.get("Largeur (mm)", 0) or 0), 1),
-            round(float(part.get("Epaisseur", 0) or 0), 1),
-            part.get("Matière", ""),
-            bool(part.get("Chant Avant", False)),
-            bool(part.get("Chant Arrière", False)),
-            bool(part.get("Chant Gauche", False)),
-            bool(part.get("Chant Droit", False)),
-            part.get("Usinage", ""),
-        )
-        existing = merged_index.get(key)
-        if existing is not None:
-            existing["Qté"] = existing.get("Qté", 1) + part.get("Qté", 1)
-            existing_caissons = [c.strip() for c in str(existing.get("Caisson", "")).split(",") if c.strip()]
-            new_caisson = str(part.get("Caisson", "")).strip()
-            if new_caisson and new_caisson not in existing_caissons:
-                existing_caissons.append(new_caisson)
-                existing["Caisson"] = ", ".join(existing_caissons)
-        else:
+        try:
+            qty = max(1, int(round(float(part.get("Qté", 1) or 1))))
+        except (TypeError, ValueError):
+            qty = 1
+        for _ in range(qty):
             new_part = part.copy()
-            merged_index[key] = new_part
+            new_part["Qté"] = 1
             merged_parts.append(new_part)
 
     return merged_parts, shelf_dims_cache
@@ -1483,7 +1465,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
 
 def get_cached_project_parts():
     """Calcule la feuille de debit seulement quand la scene change."""
-    PARTS_CACHE_SCHEMA_VERSION = "v9_no_rails"
+    PARTS_CACHE_SCHEMA_VERSION = "v10_no_merge"
     scene_json = _scene_to_json(st.session_state['scene_cabinets'])
     parts_context = {
         "has_feet": bool(st.session_state.get('has_feet', False)),
