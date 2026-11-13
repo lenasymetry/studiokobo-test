@@ -104,6 +104,11 @@ def read_pdf(data: bytes) -> List[SheetData]:
 
 def _read_page(n: int, pg) -> SheetData:
     sh = SheetData(page=n)
+    if not pg.get_text().strip():
+        sh.problems.append("PDF sans texte lisible : regénérez-le depuis KOBO Studio (bouton « Générer le PDF "
+                           "des feuilles ») après avoir regénéré les livrables. Un ancien PDF ou une impression "
+                           "AutoCAD ne peut pas être lu.")
+        return sh
     W, H = pg.rect.width, pg.rect.height
 
     # --- textes -----------------------------------------------------------

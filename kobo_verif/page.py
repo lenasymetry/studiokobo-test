@@ -46,7 +46,12 @@ def render() -> None:
                 sheets = _read(data)
             except Exception as exc:
                 st.error(f"PDF illisible : {exc}")
-        if sheets is not None and not any(s.main for s in sheets):
+        if sheets is not None and not any(s.texts for s in sheets):
+            st.error("Ce PDF ne contient aucun texte lisible : c'est un ancien PDF du site ou une impression "
+                     "d'AutoCAD. Dans KOBO Studio, regénérez les livrables, cliquez sur « Générer le PDF des "
+                     "feuilles », puis déposez ce nouveau PDF ici.")
+            sheets = None
+        elif sheets is not None and not any(s.main for s in sheets):
             st.error("Aucune feuille d'usinage KOBO reconnue dans ce PDF. Utilisez le PDF généré par le site "
                      "(bouton « Générer le PDF des feuilles »), pas une impression d'AutoCAD.")
             sheets = None

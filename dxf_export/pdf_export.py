@@ -173,6 +173,7 @@ def dxf_to_pdf(dxf_bytes: bytes) -> Optional[bytes]:
     doc = ezdxf.read(io.StringIO(dxf_bytes.decode("utf-8", errors="replace")))
     ctx = RenderContext(doc)
     out = pymupdf.open()
+    text_errors: List[str] = []
     for name in doc.layout_names_in_taborder():
         if name == "Model":
             continue
@@ -188,8 +189,11 @@ def dxf_to_pdf(dxf_bytes: bytes) -> Optional[bytes]:
             try:
                 _add_text_layer(pg, lay, doc)
             except Exception as exc:       # le PDF reste utilisable sans la couche texte
-                print(f"[PDF] couche texte indisponible ({name}) : {exc}")
+                text_errors.append(f"{name}: {type(exc).__name__}: {exc}")
             out.insert_pdf(part)
     if out.page_count == 0:
         return None
+    if not any(pg.get_text().strip() for pg in out):
+        raise RuntimeError("couche de texte absente du PDF (KOBO Vérif ne pourrait pas le lire)"
+                           + (f" : {text_errors[0]}" if text_errors else ""))
     return out.tobytes(garbage=3, deflate=True)
