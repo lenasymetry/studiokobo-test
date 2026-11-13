@@ -1863,6 +1863,31 @@ def ensure_authenticated(logo_data: str | None) -> None:
 
 ensure_authenticated(logo_base64)
 
+# --- Choix de l'outil : Studio KOBO (conception) ou KOBO Vérif (contrôle des PDF) ---
+if st.session_state.get('app_mode') == 'verif':
+    from kobo_verif.page import render as _render_verif
+    _render_verif()
+    st.stop()
+if st.session_state.get('app_mode') != 'studio':
+    st.markdown("<h1 style='text-align:center;margin-top:2rem'>KOBO</h1>"
+                "<p style='text-align:center;color:gray'>Que voulez-vous faire ?</p>", unsafe_allow_html=True)
+    _c1, _c2 = st.columns(2, gap="large")
+    with _c1:
+        with st.container(border=True):
+            st.subheader("🛠️ KOBO Studio")
+            st.write("Concevoir le meuble, générer la feuille de débit, les plans d'usinage (DXF), SketchUp et la nomenclature.")
+            if st.button("Ouvrir KOBO Studio", type="primary", use_container_width=True, key="open_studio"):
+                st.session_state['app_mode'] = 'studio'
+                st.rerun()
+    with _c2:
+        with st.container(border=True):
+            st.subheader("🔎 KOBO Vérif")
+            st.write("Contrôler les feuilles d'usinage (PDF) : dimensions, trous, repères. Rend un constat avant l'envoi en usine.")
+            if st.button("Ouvrir KOBO Vérif", use_container_width=True, key="open_verif"):
+                st.session_state['app_mode'] = 'verif'
+                st.rerun()
+    st.stop()
+
 # En-tête et styles UI
 if logo_base64:
     header_html = f"""
@@ -2009,6 +2034,9 @@ else:
     """
 
 st.markdown(header_html, unsafe_allow_html=True)
+if st.button("↩ Changer d'outil", key="switch_tool_from_studio"):
+    st.session_state['app_mode'] = None
+    st.rerun()
 
 col1, col2 = st.columns([1, 2])
 selected_cab = get_selected_cabinet()
