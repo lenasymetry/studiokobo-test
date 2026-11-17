@@ -111,19 +111,19 @@ def explode(panels: List[Dict], strength: float = 1.0) -> None:
         hi = np.max([[p["x"] + p["w"], p["y"] + p["d"], p["z"] + p["h"]] for p in body], axis=0)
         c = (lo + hi) / 2.0
         size = float(np.max(hi - lo))
-        base, k = 0.07 * size * strength, 0.45 * strength
-        pull = 0.55 * size * strength
+        base, k = 0.14 * size * strength, 0.85 * strength
+        pull = 0.80 * size * strength
         for p in items:
             off = np.zeros(3)
             role = p["role"]
             if role == "drawer_face":
-                off[1] = -(pull + 0.15 * size * strength)
+                off[1] = -(pull + 0.30 * size * strength)
             elif role == "drawer_back":
                 off[1] = -pull * 0.62
-                off[2] = 0.05 * size * strength
+                off[2] = 0.14 * size * strength
             elif role == "drawer_bottom":
                 off[1] = -pull * 0.62
-                off[2] = -0.04 * size * strength
+                off[2] = -0.12 * size * strength
             elif role == "plinthe":
                 off[1] = -base
                 off[2] = -base * 1.2
@@ -143,34 +143,29 @@ def explode(panels: List[Dict], strength: float = 1.0) -> None:
             p["off"] = off
 
 
-def spread_cabinets(panels: List[Dict], margin: float = 650.0) -> None:
-    """Vue d'ensemble : écarte les caissons exposés pour qu'ils ne se chevauchent pas
-    (en x pour les caissons côte à côte, en z pour les caissons empilés)."""
-    def extents(items, axis):
-        lo = min(p["a" if False else "x" if axis == 0 else "z"] + p["off"][axis] for p in items)
-        hi = max((p["x"] + p["w"] if axis == 0 else p["z"] + p["h"]) + p["off"][axis] for p in items)
-        return lo, hi
-
+def spread_cabinets(panels: List[Dict], margin: float = 300.0) -> None:
+    """Vue d'ensemble : chaque caisson éclaté est posé à droite du précédent sur l'écran
+    (bas aligné) : les caissons empilés ou voisins ne se recouvrent plus."""
     by_cab = defaultdict(list)
     for p in panels:
         by_cab[p["cab"]].append(p)
-    for axis in (0, 2):
-        key = "x" if axis == 0 else "z"
-        groups = defaultdict(list)
-        for cab, items in by_cab.items():
-            base = [p for p in items if p["role"] == "panel" and p["family"] == "body"] or items
-            groups[round(min(p[key] for p in base) / 50.0)].append(cab)
-        shift = 0.0
-        prev_hi = None
-        for g in sorted(groups):
-            items = [p for cab in groups[g] for p in by_cab[cab]]
-            lo, hi = extents(items, axis)
-            if prev_hi is not None and lo + shift < prev_hi + margin:
-                shift += prev_hi + margin - (lo + shift)
-            for p in items:
-                p["off"] = p["off"].copy()
-                p["off"][axis] += shift
-            prev_hi = hi + shift
+
+    def corners(p):
+        x, y, z = p["x"] + p["off"][0], p["y"] + p["off"][1], p["z"] + p["off"][2]
+        return [np.array([x + a * p["w"], y + b * p["d"], z + c * p["h"]])
+                for a in (0, 1) for b in (0, 1) for c in (0, 1)]
+
+    cursor = None
+    for cab in sorted(by_cab):
+        items = by_cab[cab]
+        rs = [float(np.dot(c, _R)) for p in items for c in corners(p)]
+        lo_r, hi_r = min(rs), max(rs)
+        lo_z = min(p["z"] + p["off"][2] for p in items)
+        target = 0.0 if cursor is None else cursor + margin
+        shift = _R * (target - lo_r) + np.array([0.0, 0.0, -lo_z])
+        for p in items:
+            p["off"] = p["off"] + shift
+        cursor = hi_r + (target - lo_r)
 
 
 # ───────────────────────────── dessin ─────────────────────────────────────
@@ -188,23 +183,50 @@ def _faces(p: Dict):
     return {"front": front, "top": top, "left": left}
 
 
+def _visible_anchor(i, order_pos, order, polys, panels):
+    """Point d'attache du panneau i : sur sa plus grande face VISIBLE, pris là où
+    aucun panneau plus proche de la caméra ne le recouvre."""
+    from matplotlib.path import Path
+    p = panels[i]
+    areas = {"front": p["w"] * p["h"], "top": p["w"] * p["d"], "left": p["d"] * p["h"]}
+    nearer = [Path(poly) for j in order[order_pos + 1:] for (_, poly) in polys[j]]
+    for fname in sorted(areas, key=areas.get, reverse=True):
+        poly = dict(polys[i])[fname]
+        quad = np.array(poly)
+        cen = quad.mean(axis=0)
+        cands = []
+        for u in (0.5, 0.25, 0.75, 0.12, 0.88):
+            for v in (0.5, 0.25, 0.75, 0.12, 0.88):
+                pt = (quad[0] * (1 - u) + quad[1] * u) * (1 - v) + (quad[3] * (1 - u) + quad[2] * u) * v
+                cands.append(pt)
+        cands = np.array(cands)
+        free = np.ones(len(cands), dtype=bool)
+        for path in nearer:
+            free &= ~path.contains_points(cands)
+        if free.any():
+            idx = np.where(free)[0]
+            best = idx[np.argmin(np.linalg.norm(cands[idx] - cen, axis=1))]
+            return tuple(cands[best])
+    return tuple(np.mean(dict(polys[i])["front"], axis=0))
+
+
 def _draw_scene(ax, panels: List[Dict], numbers: Dict[int, str], marker_fs: float):
     order = sorted(range(len(panels)),
                    key=lambda i: -float(np.dot(_center(panels[i]) + panels[i]["off"], _D)))
     pts_all = []
-    anchors = {}
+    polys = {}
     for i in order:                                   # du plus loin au plus proche
         p = panels[i]
         cols = _COLORS[p["family"]]
         faces = _faces(p)
-        areas = {"front": p["w"] * p["h"], "top": p["w"] * p["d"], "left": p["d"] * p["h"]}
+        polys[i] = []
         for name, col in zip(("left", "front", "top"), (cols[2], cols[0], cols[1])):
             poly = [_project(np.array(v)) for v in faces[name]]
-            ax.add_patch(Polygon(poly, closed=True, facecolor=col, edgecolor=_DARK, linewidth=0.45,
+            polys[i].append((name, poly))
+            ax.add_patch(Polygon(poly, closed=True, facecolor=col, edgecolor=_DARK, linewidth=0.5,
                                  joinstyle="round", zorder=2))
             pts_all.extend(poly)
-        best = max(areas, key=areas.get)
-        anchors[i] = tuple(np.mean([_project(np.array(v)) for v in faces[best]], axis=0))
+    anchors = {i: _visible_anchor(i, k, order, polys, panels) for k, i in enumerate(order)}
     return anchors, pts_all
 
 
@@ -216,7 +238,7 @@ def _place_markers(anchors: Dict[int, Tuple[float, float]], bounds, min_gap: flo
     for i, (ax_, ay_) in anchors.items():
         vx, vy = ax_ - cx, ay_ - cy
         n = math.hypot(vx, vy) or 1.0
-        pos[i] = [ax_ + vx / n * min_gap * 2.2, ay_ + vy / n * min_gap * 2.2]
+        pos[i] = [ax_ + vx / n * min_gap * 3.2, ay_ + vy / n * min_gap * 3.2]
     keys = list(pos)
     for _ in range(80):
         moved = False
@@ -250,8 +272,10 @@ def _render_view(fig, rect, panels: List[Dict], numbers: Dict[int, str], marker_
     pos = _place_markers(anchors, bounds, gap)
     for i, (mx, my) in pos.items():
         ax_, ay_ = anchors[i]
-        ax.plot([ax_, mx], [ay_, my], color="#555555", linewidth=0.4, zorder=5)
-        ax.plot([ax_], [ay_], marker="o", markersize=1.6, color="#555555", zorder=6)
+        ax.plot([ax_, mx], [ay_, my], color="white", linewidth=1.8, zorder=4, solid_capstyle="round")
+        ax.plot([ax_, mx], [ay_, my], color="#C85529", linewidth=0.7, zorder=5, solid_capstyle="round")
+        ax.plot([ax_], [ay_], marker="o", markersize=3.4, markerfacecolor="#C85529",
+                markeredgecolor="white", markeredgewidth=0.6, zorder=6)
     for i, (mx, my) in pos.items():
         ax.text(mx, my, numbers[i], ha="center", va="center", fontsize=marker_fs, color="white",
                 fontweight="bold", zorder=8,
@@ -343,7 +367,7 @@ def generate_exploded_view_pdf(scene: Sequence[Dict], project_name: str = "", cl
     with PdfPages(out) as pdf:
         # --- vue d'ensemble -------------------------------------------------
         over = [dict(p) for p in panels]
-        explode(over, strength=0.8)
+        explode(over, strength=0.9)
         if len(cab_ids) > 1:
             spread_cabinets(over)
         over_nums = {}
@@ -353,7 +377,7 @@ def generate_exploded_view_pdf(scene: Sequence[Dict], project_name: str = "", cl
             over_nums[i] = f"{p['cab']}.{per_cab[p['cab']]}" if len(cab_ids) > 1 else str(per_cab[p["cab"]])
         big = len(over) > 66
         _page(pdf, over, project_name, client, "Ensemble du meuble", over_nums,
-              note=("Le détail de chaque panneau est donné page par caisson." if big or len(cab_ids) > 1 else ""),
+              note=("Caissons présentés côte à côte (pas à leur position réelle) ; détail de chaque panneau page par caisson." if len(cab_ids) > 1 else ""),
               logo=logo, with_table=not big)
         # --- une page par caisson -----------------------------------------------
         for cab in cab_ids:
