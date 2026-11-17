@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from typing import List, Tuple, Dict
 
-from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
+from machining_logic import (drawer_piece_dims, get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, door_zone_span, door_cover_span,
                              column_filler_spans, column_filler_width,
                              cabinet_joue_dims, is_hinge_post, shelf_front_setback,
@@ -195,7 +195,8 @@ def _calculate_origins(scene_cabinets: List[Dict]) -> List[Tuple[float, float, f
 # Fonction principale
 # ---------------------------------------------------------------------------
 
-def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "closed", door_angle_deg: float = 50.0) -> bytes:
+def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "closed", door_angle_deg: float = 50.0,
+                              collect: List[Dict] | None = None) -> bytes:
     """Génère un fichier Collada (.dae) représentant la scène 3D.
 
     Chaque panneau (montants, traverses, fond, étagères, portes, façades
@@ -205,6 +206,8 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
         scene_cabinets: Données de scène issues de Streamlit.
         door_mode: "closed" (portes fermées) ou "ajar" (portes entre-ouvertes).
         door_angle_deg: Angle d'entre-ouverture utilisé quand door_mode="ajar".
+        collect: si fourni, reçoit un dict par panneau (label, cab, mat, x, y, z, w, d, h, role) :
+            c'est la source des panneaux de la vue éclatée (même géométrie que SketchUp).
 
     Returns:
         bytes – contenu UTF-8 du fichier .dae prêt à télécharger.
@@ -250,6 +253,7 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
 
     # Compteur global pour des IDs XML uniques
     _counter = [0]
+    _cur_cab = [0]      # caisson en cours (pour `collect`)
 
     def _uid() -> str:
         _counter[0] += 1
@@ -267,6 +271,9 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
         """Crée un panneau (boîte) dans la scène si ses dimensions sont valides."""
         if w <= 0.0 or d <= 0.0 or h <= 0.0:
             return
+        if collect is not None:
+            collect.append({"label": label, "cab": _cur_cab[0], "mat": mat, "role": "panel",
+                            "x": ox, "y": oy, "z": oz, "w": w, "d": d, "h": h})
         uid = _uid()
         geom_id = f"geom_{uid}"
         comp_node_id = f"comp_elem_{uid}"
@@ -299,6 +306,7 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
         if L <= 0.0 or W <= 0.0 or H <= 0.0:
             continue
 
+        _cur_cab[0] = i
         ox, oy, oz = origins[i]
 
         # Fileur : réduction de la largeur effective du caisson
@@ -614,6 +622,39 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
                       d_w, face_th, face_h,
                       mat="mat_drawer")
 
+            # Vue éclatée : le caisson du tiroir (dos + fond), absent du modèle
+            # SketchUp (qui ne montre que la façade), placé derrière la façade.
+            if collect is not None:
+                try:
+                    _zp = calculate_all_zones_2d(dict(cabinet, dims=dict(cabinet.get("dims", {}) or {}, L_raw=L)))
+                    _dw = drawer_piece_dims(cabinet, drp, _zp)
+                    _fx = drawer_face_span(cabinet, drp, _zp)[0]
+                    _bx0 = ox + _fx + _dw["box_x0_on_face"]
+                    _bw = _dw["box_x1_on_face"] - _dw["box_x0_on_face"]
+                    _it = float(_dw["inner_t"])
+                    _y0 = oy + 10.0
+                    _fz = bot_z + 12.0
+                    _fw, _fd = _dw["bottom_w"], _dw["bottom_d"]
+                    if _fw > 0 and _fd > 0:
+                        collect.append({"label": f"Tiroir Fond {j+1} – {cab_label}", "cab": i, "mat": "mat_drawer",
+                                        "role": "drawer_bottom", "drawer": j,
+                                        "x": _bx0 + (_bw - _fw) / 2.0, "y": _y0, "z": _fz,
+                                        "w": _fw, "d": _fd, "h": _it})
+                    _bkw, _bkh = _dw["back_w"], _dw["back_h"]
+                    if _bkw > 0 and _bkh > 0 and _fd > 0:
+                        collect.append({"label": f"Tiroir Dos {j+1} – {cab_label}", "cab": i, "mat": "mat_drawer",
+                                        "role": "drawer_back", "drawer": j,
+                                        "x": _bx0 + (_bw - _bkw) / 2.0, "y": _y0 + _fd - _it, "z": _fz + _it,
+                                        "w": _bkw, "d": _it, "h": _bkh})
+                except Exception:
+                    pass
+            if collect is not None and collect:
+                for _c in reversed(collect):
+                    if _c["label"].startswith(f"Façade Tiroir {j+1} – ") and _c["cab"] == i:
+                        _c["role"] = "drawer_face"
+                        _c["drawer"] = j
+                        break
+
         # ── Fileur (élément indépendant à côté du caisson) ─────────────
         fileur_w = float(door_props_for_fileur.get("fileur_width", 0) or 0)
         if fileur_w > 0:
@@ -660,11 +701,14 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
                 first = group["indices"][0]
                 px, py, pz = origins[first]
                 p_height = min(float(group["width"]), foot_h)
+                _cur_cab[0] = first
                 label, _ = format_plinthe_labels(group["indices"])
                 add_panel(plinthes_node, label,
                           px, py, pz - foot_h,
                           float(group["length"]), float(group["thickness"]), p_height,
                           mat="mat_body")
+                if collect is not None and collect:
+                    collect[-1]["role"] = "plinthe"
 
     # ------------------------------------------------------------------ #
     #  Instance de scène                                                   #

@@ -479,6 +479,22 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         rb_data = None
         rb_ok = False
 
+    # Vue éclatée : panneaux de la scène écartés, repérés et listés (PDF).
+    exploded_pdf_data = None
+    exploded_error = None
+    try:
+        from exploded_view_export import generate_exploded_view_pdf
+        exploded_pdf_data = generate_exploded_view_pdf(
+            scene_with_feet,
+            project_name=st.session_state.get("project_name", "Meuble"),
+            client=st.session_state.get("client", ""),
+        )
+    except Exception as exc:
+        exploded_error = f"{type(exc).__name__}: {exc}"
+        exploded_pdf_data = None
+    st.session_state['exports_exploded_pdf_data'] = exploded_pdf_data
+    st.session_state['exports_exploded_pdf_error'] = exploded_error
+
     st.session_state['exports_dwg_data'] = dwg_data
     st.session_state['exports_dwg_pdf_data'] = None  # PDF à la demande, à refaire
     st.session_state['exports_dwg_ok'] = bool(dwg_ok)
@@ -503,7 +519,7 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
 
 
 def _build_deliverables_archive(project_name, xls_data, dxf_data, dxf_filename=None, selected_materials=None,
-                                nomenclature_data=None, dxf_pdf_data=None):
+                                nomenclature_data=None, dxf_pdf_data=None, exploded_pdf_data=None):
     """Construit une archive ZIP avec les livrables principaux (Excel + DXF)."""
     if not xls_data or not dxf_data:
         return None, None
@@ -528,6 +544,8 @@ def _build_deliverables_archive(project_name, xls_data, dxf_data, dxf_filename=N
             zf.writestr(f"Feuilles_usinage_{safe_project}.pdf", dxf_pdf_data)
         if nomenclature_data:
             zf.writestr(f"Nomenclature_{safe_project}.pdf", nomenclature_data)
+        if exploded_pdf_data:
+            zf.writestr(f"Vue éclatée_{safe_project}.pdf", exploded_pdf_data)
 
     return buffer.getvalue(), zip_name
 
@@ -713,6 +731,7 @@ def _render_exports(all_parts):
     rb_ok   = st.session_state.get('exports_rb_ok', False)
     nomenclature_data = st.session_state.get('exports_nomenclature_data')
     dwg_pdf_data = st.session_state.get('exports_dwg_pdf_data')
+    exploded_pdf_data = st.session_state.get('exports_exploded_pdf_data')
     deliverables_zip_data = None
     deliverables_zip_name = None
     if xls_data and dwg_ok and dwg_data:
@@ -722,7 +741,7 @@ def _render_exports(all_parts):
         zip_key = (
             xls_data, dwg_data, dwg_filename,
             st.session_state.project_name, selected_materials_key,
-            nomenclature_data, dwg_pdf_data,
+            nomenclature_data, dwg_pdf_data, exploded_pdf_data,
         )
         cached_zip = st.session_state.get('exports_zip_cache')
         if not cached_zip or cached_zip[0] != zip_key:
@@ -734,6 +753,7 @@ def _render_exports(all_parts):
                 selected_materials=selected_materials_for_generation,
                 nomenclature_data=nomenclature_data,
                 dxf_pdf_data=dwg_pdf_data,
+                exploded_pdf_data=exploded_pdf_data,
             ))
             st.session_state['exports_zip_cache'] = cached_zip
         _, deliverables_zip_data, deliverables_zip_name = cached_zip
@@ -867,6 +887,22 @@ def _render_exports(all_parts):
                 if err_3d:
                     with st.expander("Détails de l'erreur"):
                         st.code(err_3d)
+
+        with vues_col1:
+            if exploded_pdf_data:
+                st.download_button(
+                    "💥 Vue éclatée (.pdf)",
+                    exploded_pdf_data,
+                    f"Vue éclatée_{st.session_state.project_name.replace(' ', '_')}.pdf",
+                    "application/pdf",
+                    use_container_width=True,
+                )
+            else:
+                st.warning("⚠️ Vue éclatée indisponible.")
+                err_ex = st.session_state.get('exports_exploded_pdf_error')
+                if err_ex:
+                    with st.expander("Détails de l'erreur"):
+                        st.code(err_ex)
 
         with vues_col2:
             if rb_ok and rb_data:
