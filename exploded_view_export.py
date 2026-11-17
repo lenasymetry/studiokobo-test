@@ -137,9 +137,11 @@ def explode(panels: List[Dict], strength: float = 1.0) -> None:
                 if p["family"] in ("door", "drawer"):
                     sign = -1.0                               # vers l'avant
                     diff = -(c[1] - p["y"])
-                elif p["name"].startswith("Joue"):
-                    pass
                 off[a] = sign * (base + k * abs(diff))
+                if p["name"].startswith("Joue"):
+                    # La joue habille le montant (ou la traverse) : elle s'en écarte
+                    # davantage que lui, sinon elles restent collées et se superposent.
+                    off[a] += sign * 1.7 * base
             p["off"] = off
 
 
@@ -238,7 +240,9 @@ def _place_markers(anchors: Dict[int, Tuple[float, float]], bounds, min_gap: flo
     for i, (ax_, ay_) in anchors.items():
         vx, vy = ax_ - cx, ay_ - cy
         n = math.hypot(vx, vy) or 1.0
-        pos[i] = [ax_ + vx / n * min_gap * 3.2, ay_ + vy / n * min_gap * 3.2]
+        tx, ty = -vy / n, vx / n                      # tangente : évite les repères alignés
+        side = ((i * 7) % 3 - 1) * 0.9 * min_gap
+        pos[i] = [ax_ + vx / n * min_gap * 3.2 + tx * side, ay_ + vy / n * min_gap * 3.2 + ty * side]
     keys = list(pos)
     for _ in range(80):
         moved = False
