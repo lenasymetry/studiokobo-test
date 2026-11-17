@@ -863,6 +863,16 @@ def _render_exports(all_parts):
                 if nom_err:
                     st.caption(nom_err)
 
+            if exploded_pdf_data:
+                st.download_button(
+                    "💥 Vue éclatée (.pdf)",
+                    exploded_pdf_data,
+                    f"Vue éclatée_{st.session_state.project_name.replace(' ', '_')}.pdf",
+                    "application/pdf",
+                    use_container_width=True,
+                    key="dl_exploded_top",
+                )
+
         # ── Vues 3D cotées ─────────────────────────────────────────────
         st.divider()
         st.markdown("#### 📐 Vues 3D cotées (pour menuisiers)")
@@ -887,22 +897,6 @@ def _render_exports(all_parts):
                 if err_3d:
                     with st.expander("Détails de l'erreur"):
                         st.code(err_3d)
-
-        with vues_col1:
-            if exploded_pdf_data:
-                st.download_button(
-                    "💥 Vue éclatée (.pdf)",
-                    exploded_pdf_data,
-                    f"Vue éclatée_{st.session_state.project_name.replace(' ', '_')}.pdf",
-                    "application/pdf",
-                    use_container_width=True,
-                )
-            else:
-                st.warning("⚠️ Vue éclatée indisponible.")
-                err_ex = st.session_state.get('exports_exploded_pdf_error')
-                if err_ex:
-                    with st.expander("Détails de l'erreur"):
-                        st.code(err_ex)
 
         with vues_col2:
             if rb_ok and rb_data:
@@ -1880,6 +1874,8 @@ def ensure_authenticated(logo_data: str | None) -> None:
 
 
 ensure_authenticated(logo_base64)
+
+st.sidebar.caption(f"Version du site : {_exports_code_version()[:7]}")
 
 # --- Choix de l'outil : Studio KOBO (conception) ou KOBO Vérif (contrôle des PDF) ---
 if st.session_state.get('app_mode') == 'verif':
