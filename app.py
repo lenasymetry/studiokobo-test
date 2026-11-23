@@ -121,6 +121,8 @@ from machining_logic import (
     cabinet_rails,
     scene_floor_width_mm,
     foot_positions_mm,
+    scene_has_mixed_feet,
+    foot_lifts_mm,
     normalize_vertical_shelves,
     default_extra_feet_rows,
     stacked_cabinet_pairs,
@@ -430,6 +432,7 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
             "extra_feet": st.session_state.get("extra_feet", False),
             "extra_feet_rows": st.session_state.get("extra_feet_rows", 1),
             "stack_fixing": st.session_state.get("stack_fixing", False),
+            "feet_level_mode": st.session_state.get("feet_level_mode", "cabinet"),
             "scene_cabinets": scene,
         }
         xls_data = create_styled_excel(project_info, export_df, save_data_export)
@@ -2159,6 +2162,14 @@ with col1:
                                     key='extra_feet_rows')
                     _feet_rule = "placés dans l'axe des montants secondaires" if st.session_state.foot_height == 20.0 else "répartis régulièrement sur la largeur"
                     st.caption(f"Total : {4 + 2 * int(st.session_state.extra_feet_rows)} pieds, {_feet_rule}.")
+            if scene_has_mixed_feet(st.session_state['scene_cabinets']):
+                st.radio(
+                    "Niveau du meuble (vue 3D)",
+                    options=['cabinet', 'floor'],
+                    format_func=lambda x: "Bas des caissons alignés (les caissons sans pieds « flottent »)" if x == 'cabinet'
+                    else "Pieds au sol (les caissons sans pieds restent posés au sol, plus bas)",
+                    key='feet_level_mode',
+                )
 
         # Fixation des caissons superposés : proposée seulement quand la scène
         # comporte réellement un caisson posé sur un autre.
@@ -3989,6 +4000,16 @@ with col2:
     scene = st.session_state['scene_cabinets']
     unit_factor = {"mm":0.001,"cm":0.01,"m":1.0}[st.session_state.unit_select]
     abs_origins = calculate_origins_recursively(st.session_state.scene_cabinets, unit_factor)
+    # Pieds au sol : les caissons sur pieds sont surélevés, ceux sans pieds
+    # restent au sol (seulement quand certains caissons ont des pieds et d'autres non).
+    _feet_on_floor = bool(
+        st.session_state.get('has_feet', False)
+        and st.session_state.get('feet_level_mode', 'cabinet') == 'floor'
+        and scene_has_mixed_feet(scene)
+    )
+    if _feet_on_floor:
+        _lifts = foot_lifts_mm(scene, st.session_state.get('foot_height', 0.0))
+        abs_origins = [(o[0], o[1], o[2] + lf * unit_factor) for o, lf in zip(abs_origins, _lifts)]
     
     BODY_COLOR = "#D6C098"
     ACCESSORY_COLOR = "#B8A078"
@@ -4823,7 +4844,7 @@ with col2:
             for fx, fy in foot_positions_mm(scene, st.session_state.get('extra_feet', False),
                                             st.session_state.get('extra_feet_rows', 0),
                                             st.session_state.foot_height):
-                fig3d.add_trace(cylinder_mesh_for((fx * unit_factor, fy * unit_factor, -fh), fh, 20.0 * unit_factor,
+                fig3d.add_trace(cylinder_mesh_for((fx * unit_factor, fy * unit_factor, 0.0 if _feet_on_floor else -fh), fh, 20.0 * unit_factor,
                                                   color='#333', showlegend=False))
 
     # Caméra fixée pour voir de face (côté intérieur du caisson)

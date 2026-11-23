@@ -2109,6 +2109,31 @@ def _run_foot_positions(scene_cabinets, origins, members, extra_feet, extra_rows
     return [(x, y) for x in xs for y in (y_front, y_rear)]
 
 
+def scene_has_mixed_feet(scene_cabinets):
+    """Des caissons au sol ont des pieds et d'autres non ?"""
+    flags = {cabinet_has_foot(scene_cabinets, i)
+             for i in range(len(scene_cabinets)) if cabinet_rests_on_floor(scene_cabinets, i)}
+    return len(flags) == 2
+
+
+def foot_lifts_mm(scene_cabinets, foot_height):
+    """Rehausse (mm) de chaque caisson quand les PIEDS posent sur le sol : un
+    caisson sur pieds (et la pile qu'il porte) est surélevé de la hauteur des
+    pieds, un caisson sans pieds reste au sol. Un caisson accolé à une pile
+    suit le caisson au sol dont il dépend."""
+    fh = float(foot_height or 0.0)
+    lifts = []
+    for i in range(len(scene_cabinets)):
+        seen, j = set(), i
+        while j is not None and j not in seen and 0 <= j < len(scene_cabinets) \
+                and not cabinet_rests_on_floor(scene_cabinets, j):
+            seen.add(j)
+            j = scene_cabinets[j].get('parent_index')
+        ok = j is not None and 0 <= j < len(scene_cabinets) and cabinet_has_foot(scene_cabinets, j)
+        lifts.append(fh if ok else 0.0)
+    return lifts
+
+
 def foot_holes_by_piece(scene_cabinets, cab_index, foot_height, extra_feet=False, extra_rows=0):
     """Trous des pieds de 20 mm d'un caisson posé au sol, par pièce :
     {'traverse': [...], 'mg': [...], 'md': [...], 'dividers': {indice: [...]}}.
