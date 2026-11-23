@@ -246,7 +246,7 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
     _global_has_feet = bool(st.session_state.get('has_feet', False))
     _global_foot_height = float(st.session_state.get('foot_height', 0.0) or 0.0)
     scene_with_feet = [
-        {**cab, 'has_feet': _global_has_feet, 'foot_height': _global_foot_height}
+        {**cab, 'has_feet': cabinet_feet_active(cab, _global_has_feet), 'foot_height': _global_foot_height}
         for cab in scene
     ]
 
@@ -330,7 +330,7 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
                     _holes = joue_assembly_holes(
                         st.session_state['scene_cabinets'], _ci,
                         'gauche' if "gauche" in _ref_l else 'droite',
-                        bool(st.session_state.get('has_feet', False)),
+                        cabinet_feet_active(st.session_state['scene_cabinets'][_ci], st.session_state.get('has_feet', False)),
                         st.session_state.get('foot_height', 0.0),
                     )
                     extra_plan["face_holes"] = apply_face_hole_depths(ref, [
@@ -1036,7 +1036,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
     for i, cabinet in enumerate(scene):
         dims = cabinet['dims']
         debit_data = cabinet['debit_data']
-        cabinet_has_feet = bool(has_feet or cabinet.get('has_feet', False))
+        cabinet_has_feet = cabinet_feet_active(cabinet, has_feet)
         fileur_w = float(cabinet.get('door_props', {}).get('fileur_width', 0) or 0.0)
         L_eff = max(0.0, float(dims['L_raw']) - fileur_w)
 
@@ -2142,7 +2142,7 @@ with col1:
         st.button("Vider la scène 🗑️", on_click=clear_scene, use_container_width=True)
         st.markdown("---")
         st.markdown('<div class="kb-step">Etape 1D - Options globales</div>', unsafe_allow_html=True)
-        st.markdown('<p class="kb-note">Activez les pieds uniquement si votre meuble est posé au sol.</p>', unsafe_allow_html=True)
+        st.markdown('<p class="kb-note">Activez les pieds uniquement si votre meuble est posé au sol. Par défaut tous les caissons au sol en reçoivent ; pour en retirer sous certains, décochez « Poser des pieds » dans Etape 2 &gt; Dimensions du caisson.</p>', unsafe_allow_html=True)
         st.toggle("Ajouter des pieds", key='has_feet')
         if st.session_state.has_feet:
             feet_map = {"20": 20.0, "80-100": 100.0, "110-120": 120.0}
@@ -2202,6 +2202,17 @@ with col1:
                     st.number_input("Arrière (Fond)", value=dims['t_fb_raw'], key=f"t_fb_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_fb_raw'), format="%.0f", step=1.0)
                     st.number_input("Haut/Bas (Traverses)", value=dims['t_tb_raw'], key=f"t_tb_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_tb_raw'), format="%.0f", step=1.0)
                     
+                    if st.session_state.get('has_feet'):
+                        st.markdown("##### Pieds")
+                        if cabinet_rests_on_floor(st.session_state['scene_cabinets'], idx):
+                            def _toggle_cab_feet(_i=idx):
+                                _c = st.session_state['scene_cabinets'][_i]
+                                _c['no_feet'] = not bool(st.session_state.get(f"cab_feet_{_i}", True))
+                            st.toggle("Poser des pieds sous ce caisson", value=not selected_cab.get('no_feet', False),
+                                      key=f"cab_feet_{idx}", on_change=_toggle_cab_feet)
+                        else:
+                            st.caption("Caisson superposé : il repose sur le caisson du dessous, sans pieds.")
+
                     st.markdown("##### Éléments de Base")
                     st.markdown("Cocher les éléments à inclure dans le caisson :")
                     # Initialiser les préférences si elles n'existent pas
@@ -2372,7 +2383,7 @@ with col1:
                                 # (2 charnières sous 450 mm de vantail, 3 au-delà).
                                 _leaf_h, _ = get_door_vertical_geometry(
                                     get_cabinet_door_height_raw(selected_cab), d_p,
-                                    bool(st.session_state.get('has_feet', False)),
+                                    cabinet_feet_active(selected_cab, st.session_state.get('has_feet', False)),
                                     st.session_state.get('foot_height', 0.0),
                                 )
                                 custom_positions = get_hinge_y_positions(_leaf_h)
@@ -3045,7 +3056,7 @@ with col1:
                                 _full_j = cabinet_joue_dims(
                                     {**selected_cab, 'joues': {**joues, joue_key: {**joue, 'custom_height': 0}}},
                                     joue_key,
-                                    bool(st.session_state.get('has_feet', False) or selected_cab.get('has_feet', False)),
+                                    cabinet_feet_active(selected_cab, st.session_state.get('has_feet', False)),
                                     st.session_state.get('foot_height', 0.0),
                                     float(selected_cab.get('door_props', {}).get('fileur_width', 0) or 0.0),
                                 )
@@ -3107,7 +3118,7 @@ with col1:
                             _joue_fileur = float(selected_cab.get('door_props', {}).get('fileur_width', 0) or 0.0)
                             _joue_geo = cabinet_joue_dims(
                                 selected_cab, joue_key,
-                                bool(st.session_state.get('has_feet', False) or selected_cab.get('has_feet', False)),
+                                cabinet_feet_active(selected_cab, st.session_state.get('has_feet', False)),
                                 st.session_state.get('foot_height', 0.0),
                                 _joue_fileur,
                             ) or get_joue_dimensions(joue_key, selected_cab['dims'])
@@ -3801,7 +3812,7 @@ with col1:
                     # un caisson superposé repose sur celui du dessous, et des
                     # caissons accolés se partagent une plinthe unique rattachée
                     # au premier d'entre eux.
-                    _feet_on = bool(st.session_state.get('has_feet', False) or selected_cab.get('has_feet', False))
+                    _feet_on = cabinet_feet_active(selected_cab, st.session_state.get('has_feet', False))
                     plinthe_group = (
                         get_plinthe_for_cabinet(st.session_state['scene_cabinets'], idx)
                         if _feet_on and feet_need_plinthe(st.session_state.get('foot_height', 0.0)) else None
@@ -4296,7 +4307,7 @@ with col2:
                 # cache-pieds descend devant les pieds, 10 mm au-dessus du sol.
                 _dH_mm, _dz_mm = get_door_vertical_geometry(
                     get_cabinet_door_height_raw(cab_render), dp,
-                    bool(st.session_state.get('has_feet', False) or cab_render.get('has_feet', False)),
+                    cabinet_feet_active(cab_render, st.session_state.get('has_feet', False)),
                     st.session_state.get('foot_height', 0.0)
                 )
                 dH = _dH_mm * unit_factor
@@ -4683,7 +4694,7 @@ with col2:
                     ('dessous', 'bottom'),
                 ]
 
-                cab_render_has_feet = bool(st.session_state.get('has_feet', False) or cab_render.get('has_feet', False))
+                cab_render_has_feet = cabinet_feet_active(cab_render, st.session_state.get('has_feet', False))
                 cab_render_foot_height = st.session_state.get('foot_height', 0.0)
                 cab_render_fileur_w = float(cab_render.get('door_props', {}).get('fileur_width', 0) or 0.0)
 

@@ -1,6 +1,6 @@
 import math
 
-from project_definitions import CACHE_PIED_FLOOR_CLEARANCE, cache_pied_drop_mm
+from project_definitions import CACHE_PIED_FLOOR_CLEARANCE, cache_pied_drop_mm, cabinet_feet_active
 
 def calculate_origins_recursively(scene_cabinets, unit_factor):
     """
@@ -124,6 +124,12 @@ def cabinet_rests_on_floor(scene_cabinets, cab_index):
         index = parent
 
 
+def cabinet_has_foot(scene_cabinets, cab_index):
+    """Ce caisson reçoit-il des pieds ? Posé au sol et non exclu (`no_feet`)."""
+    return (cabinet_rests_on_floor(scene_cabinets, cab_index)
+            and not scene_cabinets[cab_index].get('no_feet'))
+
+
 # Plinthe : cotes canoniques. La longueur d'une plinthe est la largeur qu'elle
 # habille, moins les deux montants d'extrémité, plus une réserve de pose.
 PLINTHE_END_ALLOWANCE = 100.0
@@ -158,7 +164,7 @@ def get_plinthe_groups(scene_cabinets):
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
     on_floor = []
     for i, cab in enumerate(scene_cabinets):
-        if not cabinet_rests_on_floor(scene_cabinets, i):
+        if not cabinet_has_foot(scene_cabinets, i):
             continue
         dims = cab.get('dims', {}) or {}
         L_raw = float(dims.get('L_raw', 0.0) or 0.0)
@@ -1993,7 +1999,7 @@ def _is_drilled_foot(foot_height):
     return foot_height is not None and abs(float(foot_height) - DRILLED_FOOT_HEIGHT_MM) <= 0.5
 
 
-def _intermediate_foot_supports(scene_cabinets, origins):
+def _intermediate_foot_supports(scene_cabinets, origins, members=None):
     """Montants qui peuvent porter un pied intermédiaire de 20 mm : [(x de l'axe,
     y du pied arrière)], repère scène. Montants secondaires posés sur la traverse
     basse (double montant : un seul des deux) et montants de jonction de caissons.
@@ -2001,7 +2007,7 @@ def _intermediate_foot_supports(scene_cabinets, origins):
     avant le fond), pour rester à l'écart de son dernier tourillon."""
     supports = []
     for i, (cab, (ox, oy, _)) in enumerate(zip(scene_cabinets, origins)):
-        if not cabinet_rests_on_floor(scene_cabinets, i):
+        if not cabinet_has_foot(scene_cabinets, i) or (members is not None and i not in members):
             continue
         rear = oy + carcass_piece_dims(cab)['W_inner'] - FOOT_EDGE_OFFSET_MM
         prev = None
@@ -2014,7 +2020,8 @@ def _intermediate_foot_supports(scene_cabinets, origins):
             prev = (cx, th)
         t_lr = float(cab['dims'].get('t_lr_raw', 19.0))
         right = ox + carcass_piece_dims(cab)['L_eff']
-        if any(j != i and abs(o[0] - right) < 1.0 and cabinet_rests_on_floor(scene_cabinets, j)
+        if any(j != i and abs(o[0] - right) < 1.0 and cabinet_has_foot(scene_cabinets, j)
+               and (members is None or j in members)
                for j, o in enumerate(origins)):
             supports.append((right - t_lr / 2.0, oy + float(cab['dims']['W_raw']) - FOOT_EDGE_OFFSET_MM))
     return supports
@@ -2059,22 +2066,43 @@ def foot_positions_mm(scene_cabinets, extra_feet=False, extra_rows=0, foot_heigh
     if not scene_cabinets:
         return []
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
-    lefts = [o[0] for o in origins]
-    rights = [o[0] + float(c['dims']['L_raw']) for o, c in zip(origins, scene_cabinets)]
+    # Caissons à pieds, regroupés par tronçons jointifs : chaque tronçon a ses
+    # propres pieds de coin (un caisson sans pieds coupe le meuble en deux).
+    bearing = sorted((i for i in range(len(scene_cabinets)) if cabinet_has_foot(scene_cabinets, i)),
+                     key=lambda i: origins[i][0])
+    runs = []
+    for i in bearing:
+        left = origins[i][0]
+        if runs and abs(left - runs[-1]['x1']) <= 1.0:
+            runs[-1]['members'].append(i)
+            runs[-1]['x1'] = left + float(scene_cabinets[i]['dims']['L_raw'])
+        else:
+            runs.append({'members': [i], 'x1': left + float(scene_cabinets[i]['dims']['L_raw'])})
+    out = []
+    for run in runs:
+        out.extend(_run_foot_positions(scene_cabinets, origins, run['members'], extra_feet, extra_rows, foot_height))
+    return out
+
+
+def _run_foot_positions(scene_cabinets, origins, members, extra_feet, extra_rows, foot_height):
+    cabs = [scene_cabinets[i] for i in members]
+    ors = [origins[i] for i in members]
+    lefts = [o[0] for o in ors]
+    rights = [o[0] + float(c['dims']['L_raw']) for o, c in zip(ors, cabs)]
     x0, x1 = min(lefts), max(rights)
-    y0 = min(o[1] for o in origins)
-    y1 = max(o[1] + float(c['dims']['W_raw']) for o, c in zip(origins, scene_cabinets))
+    y0 = min(o[1] for o in ors)
+    y1 = max(o[1] + float(c['dims']['W_raw']) for o, c in zip(ors, cabs))
     # Épaisseur du montant extérieur gauche / droit (caisson en bout de meuble).
-    left_cab, right_cab = scene_cabinets[lefts.index(x0)], scene_cabinets[rights.index(x1)]
+    left_cab, right_cab = cabs[lefts.index(x0)], cabs[rights.index(x1)]
     t_left = float(left_cab['dims'].get('t_lr_raw', 19.0))
     t_right = float(right_cab['dims'].get('t_lr_raw', 19.0))
     n_mid = int(extra_rows or 0) if (extra_feet and (x1 - x0) > 1000.0) else 0
     y_front, y_rear = y0 + FOOT_EDGE_OFFSET_MM, y1 - FOOT_EDGE_OFFSET_MM
     if _is_drilled_foot(foot_height):
         xl = x0 + t_left / 2.0
-        xr = origins[rights.index(x1)][0] + carcass_piece_dims(right_cab)['L_eff'] - t_right / 2.0
+        xr = ors[rights.index(x1)][0] + carcass_piece_dims(right_cab)['L_eff'] - t_right / 2.0
         rows = [(xl, y_rear)] + _intermediate_foot_rows(
-            xl, xr, n_mid, _intermediate_foot_supports(scene_cabinets, origins), y_rear) + [(xr, y_rear)]
+            xl, xr, n_mid, _intermediate_foot_supports(scene_cabinets, origins, set(members)), y_rear) + [(xr, y_rear)]
         return [(x, y) for x, rear in rows for y in (y_front, rear)]
     xl, xr = x0 + t_left + FOOT_EDGE_OFFSET_MM, x1 - t_right - FOOT_EDGE_OFFSET_MM
     xs = [xl + (xr - xl) * k / (n_mid + 1) for k in range(n_mid + 2)]
@@ -2089,7 +2117,7 @@ def foot_holes_by_piece(scene_cabinets, cab_index, foot_height, extra_feet=False
     montant secondaire la traverse et se visse dans la tranche du montant).
     Montants : perçage de la seule tranche basse, x le long de la profondeur."""
     out = {'traverse': [], 'mg': [], 'md': [], 'dividers': {}}
-    if not _is_drilled_foot(foot_height) or not cabinet_rests_on_floor(scene_cabinets, cab_index):
+    if not _is_drilled_foot(foot_height) or not cabinet_has_foot(scene_cabinets, cab_index):
         return out
     cab = scene_cabinets[cab_index]
     ox, oy, _ = calculate_origins_recursively(scene_cabinets, 1.0)[cab_index]

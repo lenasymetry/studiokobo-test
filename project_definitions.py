@@ -90,6 +90,14 @@ CACHE_PIED_FLOOR_CLEARANCE = 10.0
 CACHE_PIED_DROP = 70.0
 
 
+def cabinet_feet_active(cab, global_has_feet=False):
+    """Ce caisson est-il sur pieds ? Option globale « Ajouter des pieds », sauf
+    si le caisson est exclu (`no_feet`, case décochée dans ses réglages)."""
+    if (cab or {}).get('no_feet'):
+        return False
+    return bool(global_has_feet or (cab or {}).get('has_feet', False))
+
+
 def cache_pied_drop_mm(foot_height):
     """Descente d'un panneau cache-pieds sous le caisson, en mm."""
     return max(0.0, min(CACHE_PIED_DROP, float(foot_height or 0.0) - CACHE_PIED_FLOOR_CLEARANCE))

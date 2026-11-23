@@ -108,7 +108,7 @@ def nomenclature_lines(scene, sheet_plans, feet=None):
 
     feet = feet or {}
     if feet.get("has_feet"):
-        n_feet = len(foot_positions_mm(scene, feet.get("extra_feet", False), feet.get("extra_feet_rows", 0)))
+        n_feet = len(foot_positions_mm(scene, feet.get("extra_feet", False), feet.get("extra_feet_rows", 0), feet.get("foot_height")))
         if n_feet:
             height = float(feet.get("foot_height", 0.0) or 0.0)
             h_txt = FOOT_HEIGHT_LABELS.get(height, f"{height:.0f}")

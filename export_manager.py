@@ -7,7 +7,7 @@ from machining_logic import drawer_slide_hole_xs, legrabox_nominal_length
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
 from machining_logic import stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
-from project_definitions import get_legrabox_specs
+from project_definitions import get_legrabox_specs, cabinet_feet_active
 
 try:
     import ezdxf
@@ -931,7 +931,7 @@ def _door_hinge_rows_for_cabinet(scene, cab_idx, cab):
     def _rows_from(door_cab, base_offset):
         dp = door_cab.get('door_props', {}) or {}
         span = get_cabinet_door_height_raw(door_cab)
-        dH, dz = get_door_vertical_geometry(span, dp, has_feet, foot_h)
+        dH, dz = get_door_vertical_geometry(span, dp, cabinet_feet_active(door_cab, has_feet), foot_h)
         # Ouverture couverte : colonne entre montants, ou tout le caisson.
         opening = door_zone_span(door_cab) or (t_lr_own, carcass_piece_dims(cab)['L_eff'] - t_lr_own)
         for edge, y in _door_leaf_hinge_rows(door_cab, dH, dz):
@@ -1830,7 +1830,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 # remplace celle du seul caisson.
                 dH, door_dz = get_door_vertical_geometry(
                     get_cabinet_door_height_raw(cab), dp,
-                    bool(st.session_state.get('has_feet', False)),
+                    cabinet_feet_active(cab, st.session_state.get('has_feet', False)),
                     st.session_state.get('foot_height', 0.0),
                 )
                 hinge_pos = _door_hinge_positions(cab, dH, door_dz)
