@@ -2272,7 +2272,7 @@ with col1:
                     st.markdown("##### Dimensions Externes")
                     dims = selected_cab['dims']
                     st.number_input("Longueur (X)", value=dims['L_raw'], key=f"L_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('L_raw'), format="%.0f", step=1.0)
-                    st.number_input("Profondeur", value=dims['W_raw'], key=f"W_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('W_raw'), format="%.0f", step=1.0)
+                    st.number_input("Profondeur (Y)", value=dims['W_raw'], key=f"W_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('W_raw'), format="%.0f", step=1.0)
                     st.number_input("Hauteur (Z)", value=dims['H_raw'], key=f"H_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('H_raw'), format="%.0f", step=1.0)
                     st.markdown("##### Épaisseurs des Panneaux")
                     st.number_input("Parois latérales (Montants)", value=dims['t_lr_raw'], key=f"t_lr_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_lr_raw'), format="%.0f", step=1.0)

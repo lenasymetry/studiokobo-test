@@ -248,7 +248,7 @@ HTML_DOC = f"""
   <ul>
     <li><b>Matière</b> : <span class="ui">Matière Corps</span> pour ce caisson.</li>
     <li><b>Dimensions externes</b> : <span class="ui">Longueur (X)</span>,
-    <span class="ui">Profondeur</span>, <span class="ui">Hauteur (Z)</span>,
+    <span class="ui">Profondeur (Y)</span>, <span class="ui">Hauteur (Z)</span>,
     en millimètres et hors-tout.</li>
     <li><b>Épaisseurs des panneaux</b> :
     <span class="ui">Parois latérales (Montants)</span>,
