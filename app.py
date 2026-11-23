@@ -4000,6 +4000,9 @@ with col2:
     scene = st.session_state['scene_cabinets']
     unit_factor = {"mm":0.001,"cm":0.01,"m":1.0}[st.session_state.unit_select]
     abs_origins = calculate_origins_recursively(st.session_state.scene_cabinets, unit_factor)
+    # Pieds « 80-100 » : la valeur de calcul est 100, mais ils sont dessinés à 80 mm.
+    _foot_h_3d = {100.0: 80.0}.get(float(st.session_state.get('foot_height', 0.0) or 0.0),
+                                    float(st.session_state.get('foot_height', 0.0) or 0.0))
     # Pieds au sol : les caissons sur pieds sont surélevés, ceux sans pieds
     # restent au sol (seulement quand certains caissons ont des pieds et d'autres non).
     _feet_on_floor = bool(
@@ -4008,7 +4011,7 @@ with col2:
         and scene_has_mixed_feet(scene)
     )
     if _feet_on_floor:
-        _lifts = foot_lifts_mm(scene, st.session_state.get('foot_height', 0.0))
+        _lifts = foot_lifts_mm(scene, _foot_h_3d)
         abs_origins = [(o[0], o[1], o[2] + lf * unit_factor) for o, lf in zip(abs_origins, _lifts)]
     
     BODY_COLOR = "#D6C098"
@@ -4840,7 +4843,7 @@ with col2:
                                         zone_ids_to_hatch=new_zone_ids, color="rgba(200,100,0,0.7)", line_width=2, y_plane_offset=-0.01)
 
         if st.session_state.has_feet:
-            fh = st.session_state.foot_height * unit_factor
+            fh = _foot_h_3d * unit_factor
             for fx, fy in foot_positions_mm(scene, st.session_state.get('extra_feet', False),
                                             st.session_state.get('extra_feet_rows', 0),
                                             st.session_state.foot_height):
