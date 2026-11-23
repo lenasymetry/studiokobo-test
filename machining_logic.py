@@ -2109,6 +2109,97 @@ def _run_foot_positions(scene_cabinets, origins, members, extra_feet, extra_rows
     return [(x, y) for x in xs for y in (y_front, y_rear)]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Plan de travail
+# ─────────────────────────────────────────────────────────────────────────────
+WORKTOP_THICKNESS_MM = 19.0
+WORKTOP_OVERHANG_MM = 10.0
+
+
+def cabinet_front_offset_mm(scene_cabinets, cab_index):
+    """Distance (mm) dont la façade (porte, face de tiroir en applique) avance
+    devant le caisson ; 0 s'il n'y a ni porte ni tiroir en applique."""
+    cab = scene_cabinets[cab_index]
+    dp = cab.get('door_props', {}) or {}
+    if dp.get('has_door') and not cabinet_door_is_hidden(cab):
+        return float(dp.get('door_thickness', 19.0) or 0.0)
+    if cab.get('imported_doors'):
+        return float(dp.get('door_thickness', 19.0) or 0.0)
+    if cabinet_door_is_hidden(cab):
+        # Porte commune portée par le caisson du dessous.
+        parent = cab.get('parent_index')
+        if parent is not None and 0 <= parent < len(scene_cabinets):
+            pdp = scene_cabinets[parent].get('door_props', {}) or {}
+            return float(pdp.get('door_thickness', 19.0) or 0.0)
+    for dr in cab.get('drawers', []) or []:
+        if dr.get('_applique_mode'):
+            return float(dr.get('drawer_face_thickness', 19.0) or 0.0)
+    return 0.0
+
+
+def worktop_eligible_indices(scene_cabinets):
+    """Caissons qui peuvent recevoir un plan de travail : rien n'est posé dessus."""
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    return [i for i in range(len(scene_cabinets))
+            if get_cabinet_above_index(scene_cabinets, i, origins) is None]
+
+
+def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
+    """Plans de travail (19 mm) des caissons cochés (`worktop`) sans caisson dessus.
+
+    Avec `fuse`, des caissons côte à côte, au même dessus et à la même profondeur
+    de départ, partagent UN plan continu ; sinon un plan par caisson. Le plan
+    affleure la façade (porte) et, avec `overhang`, la dépasse de 10 mm ; sans
+    porte ni tiroir en applique, c'est le caisson lui-même qui sert de référence.
+    `lifts` (mm par caisson) : rehausse due aux pieds (niveau « pieds au sol »).
+
+    Retourne, dans l'ordre des X : indices, x0, y_front, y_rear, z_top (mm, scène),
+    length (selon X), width (profondeur), thickness, material, overhang.
+    """
+    if not scene_cabinets:
+        return []
+    eligible = set(worktop_eligible_indices(scene_cabinets))
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    lifts = lifts or [0.0] * len(scene_cabinets)
+    chosen = []
+    for i, cab in enumerate(scene_cabinets):
+        if cab.get('worktop') and i in eligible:
+            ox, oy, oz = origins[i]
+            dims = cab['dims']
+            chosen.append({
+                'i': i, 'x0': ox, 'x1': ox + float(dims['L_raw']),
+                'y_face': oy - cabinet_front_offset_mm(scene_cabinets, i),
+                'y_rear': oy + float(dims['W_raw']), 'oy': oy,
+                'top': oz + float(dims['H_raw']) + float(lifts[i] or 0.0),
+            })
+    chosen.sort(key=lambda c: c['x0'])
+    runs = []
+    for c in chosen:
+        last = runs[-1][-1] if runs else None
+        if (fuse and last is not None and abs(c['x0'] - last['x1']) <= 1.0
+                and abs(c['top'] - last['top']) <= 1.0 and abs(c['oy'] - last['oy']) <= 1.0):
+            runs[-1].append(c)
+        else:
+            runs.append([c])
+    out = []
+    for run in runs:
+        x0 = min(c['x0'] for c in run)
+        x1 = max(c['x1'] for c in run)
+        y_face = min(c['y_face'] for c in run)
+        y_rear = max(c['y_rear'] for c in run)
+        extra = WORKTOP_OVERHANG_MM if overhang else 0.0
+        out.append({
+            'indices': [c['i'] for c in run],
+            'x0': x0, 'y_front': y_face - extra, 'y_rear': y_rear,
+            'z_top': run[0]['top'],
+            'length': x1 - x0, 'width': (y_rear - y_face) + extra,
+            'thickness': WORKTOP_THICKNESS_MM,
+            'material': str(scene_cabinets[run[0]['i']].get('material_body', 'Matière Corps')),
+            'overhang': extra,
+        })
+    return out
+
+
 def scene_has_mixed_feet(scene_cabinets):
     """Des caissons au sol ont des pieds et d'autres non ?"""
     flags = {cabinet_has_foot(scene_cabinets, i)

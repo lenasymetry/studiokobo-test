@@ -132,6 +132,8 @@ def initialize_session_state():
     st.session_state.setdefault('foot_diameter', 30.0)
     st.session_state.setdefault('extra_feet', False)
     st.session_state.setdefault('feet_level_mode', 'cabinet')
+    st.session_state.setdefault('worktop_fuse', True)
+    st.session_state.setdefault('worktop_overhang', False)
     # Fixation de caissons superposés : 4 vis traversantes dans la traverse
     # haute du caisson du dessous (voir `stack_fixing_holes`).
     st.session_state.setdefault('stack_fixing', False)
@@ -201,6 +203,8 @@ def load_save_state():
                 st.session_state['extra_feet'] = loaded_data.get('extra_feet', False)
                 st.session_state['stack_fixing'] = loaded_data.get('stack_fixing', False)
                 st.session_state['feet_level_mode'] = loaded_data.get('feet_level_mode', 'cabinet')
+                st.session_state['worktop_fuse'] = loaded_data.get('worktop_fuse', True)
+                st.session_state['worktop_overhang'] = loaded_data.get('worktop_overhang', False)
                 st.session_state['extra_feet_rows'] = loaded_data.get('extra_feet_rows', 1)
                 st.session_state['scene_cabinets'] = loaded_data.get('scene_cabinets', [])
                 if st.session_state['scene_cabinets']:

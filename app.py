@@ -122,6 +122,9 @@ from machining_logic import (
     scene_floor_width_mm,
     foot_positions_mm,
     scene_has_mixed_feet,
+    get_worktops,
+    worktop_eligible_indices,
+    WORKTOP_OVERHANG_MM,
     foot_lifts_mm,
     normalize_vertical_shelves,
     default_extra_feet_rows,
@@ -206,6 +209,9 @@ def _exports_state_json(scene):
         "extra_feet": bool(st.session_state.get('extra_feet', False)),
         "extra_feet_rows": int(st.session_state.get('extra_feet_rows', 0) or 0),
         "stack_fixing": bool(st.session_state.get('stack_fixing', False)),
+        "worktop_fuse": bool(st.session_state.get('worktop_fuse', True)),
+        "worktop_overhang": bool(st.session_state.get('worktop_overhang', False)),
+        "feet_level_mode": st.session_state.get('feet_level_mode', 'cabinet'),
     }, sort_keys=True, ensure_ascii=False)
 
 
@@ -296,7 +302,7 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         # reprises de la feuille de débit, après les feuilles de leur caisson.
         for part in all_parts or []:
             ref = str(part.get("Référence Pièce", ""))
-            if not any(k in ref.lower() for k in ("joue", "plinthe", "fileur colonne")):
+            if not any(k in ref.lower() for k in ("joue", "plinthe", "fileur colonne", "plan de travail")):
                 continue
             caissons = str(part.get("Caisson", ""))
             first_c = caissons.split(",")[0].strip()
@@ -433,6 +439,8 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
             "extra_feet_rows": st.session_state.get("extra_feet_rows", 1),
             "stack_fixing": st.session_state.get("stack_fixing", False),
             "feet_level_mode": st.session_state.get("feet_level_mode", "cabinet"),
+            "worktop_fuse": st.session_state.get("worktop_fuse", True),
+            "worktop_overhang": st.session_state.get("worktop_overhang", False),
             "scene_cabinets": scene,
         }
         xls_data = create_styled_excel(project_info, export_df, save_data_export)
@@ -1021,6 +1029,14 @@ def has_holes_for_piece(ref_key, cabinet, piece_data=None):
     # Par défaut, pas de trous
     return False
 
+def _worktop_lifts(scene, has_feet, foot_height):
+    """Rehausse des caissons sur pieds quand la 3D pose les pieds au sol (sinon None)."""
+    if (has_feet and st.session_state.get('feet_level_mode', 'cabinet') == 'floor'
+            and scene_has_mixed_feet(scene)):
+        return foot_lifts_mm(scene, foot_height)
+    return None
+
+
 def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
     """Feuille de débit du projet en cours, ou d'une scène donnée (sauvegarde)."""
     if scene is None:
@@ -1493,6 +1509,28 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             new_part["Qté"] = 1
             merged_parts.append(new_part)
 
+    # Plans de travail (débit uniquement) : un plan par caisson coché, ou un plan
+    # continu sur des caissons côte à côte ; rattaché au premier d'entre eux.
+    for wt in get_worktops(
+        scene, bool(st.session_state.get('worktop_fuse', True)),
+        bool(st.session_state.get('worktop_overhang', False)), _worktop_lifts(scene, has_feet, foot_height),
+    ):
+        _first = wt['indices'][0]
+        merged_parts.append({
+            "Lettre": f"C{_first}-PT",
+            "Référence Pièce": "Plan de travail (" + "+".join(f"C{k}" for k in wt['indices']) + ")",
+            "Matière": wt['material'],
+            "Caisson": ", ".join(f"C{k}" for k in wt['indices']),
+            "Qté": 1,
+            "Longueur (mm)": wt['length'],
+            "Largeur (mm)": wt['width'],
+            "Epaisseur": wt['thickness'],
+            "Chant Avant": True,
+            "Chant Arrière": False,
+            "Chant Gauche": True,
+            "Chant Droit": True,
+            "Usinage": "",
+        })
     return merged_parts, shelf_dims_cache
 
 
@@ -1503,6 +1541,9 @@ def get_cached_project_parts():
     parts_context = {
         "has_feet": bool(st.session_state.get('has_feet', False)),
         "foot_height": float(st.session_state.get('foot_height', 0.0) or 0.0),
+        "worktop_fuse": bool(st.session_state.get('worktop_fuse', True)),
+        "worktop_overhang": bool(st.session_state.get('worktop_overhang', False)),
+        "feet_level_mode": st.session_state.get('feet_level_mode', 'cabinet'),
     }
     parts_context_json = json.dumps(parts_context, sort_keys=True)
     if (st.session_state.get('parts_scene_json') != scene_json
@@ -2170,6 +2211,31 @@ with col1:
                     else "Pieds au sol (les caissons sans pieds restent posés au sol, plus bas)",
                     key='feet_level_mode',
                 )
+
+        st.markdown("---")
+        st.markdown("##### Plan de travail (19 mm)")
+        _wt_scene = st.session_state['scene_cabinets']
+        _wt_elig = worktop_eligible_indices(_wt_scene) if _wt_scene else []
+        if not _wt_elig:
+            st.caption("Ajoutez un caisson : un plan de travail se pose sur un caisson sans caisson au-dessus.")
+        else:
+            def _sync_worktops():
+                _sel = set(st.session_state.get('worktop_sel', []))
+                for _k, _c in enumerate(st.session_state['scene_cabinets']):
+                    _c['worktop'] = _k in _sel
+            st.session_state['worktop_sel'] = [i for i in _wt_elig if _wt_scene[i].get('worktop')]
+            st.multiselect(
+                "Caissons avec plan de travail",
+                options=_wt_elig,
+                format_func=lambda i: f"C{i} — {_wt_scene[i].get('name', i)}",
+                key='worktop_sel', on_change=_sync_worktops,
+                help="Seuls les caissons sans caisson posé dessus sont proposés.",
+            )
+            st.toggle("Un seul plan continu sur les caissons côte à côte", key='worktop_fuse',
+                      help="Caissons accolés, même profondeur et dessus au même niveau.")
+            st.toggle(f"Plan en débord de {WORKTOP_OVERHANG_MM:.0f} mm devant", key='worktop_overhang',
+                      help="Dépasse de 1 cm la façade (porte) ; sans porte ni tiroir en applique, "
+                           "de 1 cm le caisson.")
 
         # Fixation des caissons superposés : proposée seulement quand la scène
         # comporte réellement un caisson posé sur un autre.
@@ -4849,6 +4915,17 @@ with col2:
                                             st.session_state.foot_height):
                 fig3d.add_trace(cylinder_mesh_for((fx * unit_factor, fy * unit_factor, 0.0 if _feet_on_floor else -fh), fh, 20.0 * unit_factor,
                                                   color='#333', showlegend=False))
+
+    # Plans de travail (19 mm) posés sur le dessus des caissons cochés.
+    if st.session_state['scene_cabinets']:
+        _wt_lifts = foot_lifts_mm(scene, _foot_h_3d) if _feet_on_floor else None
+        for _wt in get_worktops(scene, bool(st.session_state.get('worktop_fuse', True)),
+                                bool(st.session_state.get('worktop_overhang', False)), _wt_lifts):
+            _wz = abs_origins[_wt['indices'][0]][2] + float(scene[_wt['indices'][0]]['dims']['H_raw']) * unit_factor
+            fig3d.add_trace(cuboid_mesh_for(
+                _wt['length'] * unit_factor, _wt['width'] * unit_factor, _wt['thickness'] * unit_factor,
+                (_wt['x0'] * unit_factor, _wt['y_front'] * unit_factor, _wz),
+                color='#8A6A47', opacity=1.0, name="Plan de travail", showlegend=False))
 
     # Caméra fixée pour voir de face (côté intérieur du caisson)
     # eye=dict(x=0, y=-2, z=1.4) : voir depuis l'avant (y négatif = depuis l'avant)
