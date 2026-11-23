@@ -2148,7 +2148,7 @@ with col1:
         st.markdown('<p class="kb-note">Activez les pieds uniquement si votre meuble est posé au sol. Par défaut tous les caissons au sol en reçoivent ; pour en retirer sous certains, décochez « Poser des pieds » dans Etape 2 &gt; Dimensions du caisson.</p>', unsafe_allow_html=True)
         st.toggle("Ajouter des pieds", key='has_feet')
         if st.session_state.has_feet:
-            feet_map = {"20": 20.0, "80-100": 100.0, "110-120": 120.0}
+            feet_map = {"20": 20.0, "80-100": 80.0, "110-120": 120.0}
             sel_feet = st.selectbox("Hauteur (mm)", options=["20", "80-100", "110-120"], index=1)
             st.session_state.foot_height = feet_map[sel_feet]
             st.number_input("Diamètre pieds (mm)", min_value=10.0, key='foot_diameter', value=50.0, format="%.0f", step=1.0)

@@ -20,7 +20,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from machining_logic import cabinet_rails, foot_positions_mm, legrabox_nominal_length, legrabox_load
 
 # Hauteur stockée -> plage choisie dans l'étape 1D.
-FOOT_HEIGHT_LABELS = {20.0: "20", 100.0: "80-100", 120.0: "110-120"}
+FOOT_HEIGHT_LABELS = {20.0: "20", 80.0: "80-100", 100.0: "80-100", 120.0: "110-120"}
 
 
 def _plan_quantity(plan):
