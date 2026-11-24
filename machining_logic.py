@@ -2409,7 +2409,10 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
 # ─────────────────────────────────────────────────────────────────────────────
 WORKTOP_DOWEL_EDGE_MM = 50.0       # 1er / dernier tourillon : 50 mm de l'avant / de l'arrière
 WORKTOP_DOWEL_PITCH_MM = 100.0     # entre-axe visé (réparti uniformément)
-WORKTOP_DOWEL_PANEL_MARGIN_MM = 15.0   # mini entre un tourillon et le bord du panneau percé
+WORKTOP_DOWEL_PANEL_MARGIN_MM = 15.0   # mini entre un tourillon et le bord avant/arrière du panneau percé
+# Dans la hauteur, le plan peut affleurer le bas (ou le haut) du panneau touché : le
+# tourillon est à mi-épaisseur du plan (9,5 mm du bord), on exige juste que le trou ⌀8 tienne.
+WORKTOP_DOWEL_Z_MARGIN_MM = 6.0
 
 
 def worktop_dowel_positions(depth):
@@ -2491,7 +2494,7 @@ def worktop_machining(scene_cabinets, fuse=True, overhang=False, lifts=None,
                         yj = wt['y_front'] + d - jy0
                         zj = z_c - jz0
                         m = WORKTOP_DOWEL_PANEL_MARGIN_MM
-                        if not (m <= yj <= geo['width'] - m and 20.0 <= zj <= geo['length'] - 20.0):
+                        if not (m <= yj <= geo['width'] - m and WORKTOP_DOWEL_Z_MARGIN_MM <= zj <= geo['length'] - WORKTOP_DOWEL_Z_MARGIN_MM):
                             continue
                         if (side, d) in done:
                             continue
@@ -2514,7 +2517,7 @@ def worktop_machining(scene_cabinets, fuse=True, overhang=False, lifts=None,
                     xd = wt['y_front'] + d - oy
                     yh = z_c - oz
                     m = WORKTOP_DOWEL_PANEL_MARGIN_MM
-                    if not (m <= xd <= W - m and 20.0 <= yh <= H - 20.0):
+                    if not (m <= xd <= W - m and WORKTOP_DOWEL_Z_MARGIN_MM <= yh <= H - WORKTOP_DOWEL_Z_MARGIN_MM):
                         continue
                     if (side, d) in done:
                         continue
