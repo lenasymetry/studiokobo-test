@@ -21,6 +21,25 @@ def _joue_present(scene_cabinets, idx, key, depth=0):
     return False
 
 
+def _stack_column(scene_cabinets, idx):
+    """Caissons superposés dans la même colonne que `idx` (du bas au haut)."""
+    base, seen = idx, set()
+    while (base not in seen and scene_cabinets[base].get('attachment_dir') == 'up'
+           and scene_cabinets[base].get('parent_index') is not None
+           and 0 <= scene_cabinets[base]['parent_index'] < len(scene_cabinets)):
+        seen.add(base)
+        base = scene_cabinets[base]['parent_index']
+    column, current = [base], base
+    while True:
+        nxt = next((j for j, c in enumerate(scene_cabinets)
+                    if c.get('parent_index') == current and c.get('attachment_dir') == 'up'
+                    and j not in column), None)
+        if nxt is None:
+            return column
+        column.append(nxt)
+        current = nxt
+
+
 def junction_joue_gap(scene_cabinets, parent_idx, child_idx, direction):
     """Épaisseur (mm) de la joue posée ENTRE deux caissons accolés, 0 sans joue.
 
@@ -34,15 +53,14 @@ def junction_joue_gap(scene_cabinets, parent_idx, child_idx, direction):
         left, right = child_idx, parent_idx
     else:
         return 0.0
-    left_on = _joue_present(scene_cabinets, left, 'droite')
-    right_on = _joue_present(scene_cabinets, right, 'gauche')
-    if not (left_on or right_on):
-        return 0.0
+    # Toute la colonne (caissons superposés) s'écarte d'un bloc : une joue posée
+    # dans le joint d'UN étage ne doit pas traverser les caissons des autres.
     t = 0.0
-    if left_on:
-        t = max(t, float(scene_cabinets[left]['dims'].get('t_lr_raw', 19.0) or 0.0))
-    if right_on:
-        t = max(t, float(scene_cabinets[right]['dims'].get('t_lr_raw', 19.0) or 0.0))
+    for col, key in ((_stack_column(scene_cabinets, left), 'droite'),
+                     (_stack_column(scene_cabinets, right), 'gauche')):
+        for k in col:
+            if _joue_present(scene_cabinets, k, key):
+                t = max(t, float(scene_cabinets[k]['dims'].get('t_lr_raw', 19.0) or 0.0))
     return t
 
 
@@ -1801,18 +1819,19 @@ def apply_joue_spans(scene_cabinets):
                 'on_floor': cabinet_rests_on_floor(scene_cabinets, i),
             }
         cab['joue_spans'] = spans
-    # Joue entre deux caissons accolés : un seul panneau, celui du caisson de
-    # gauche ; la joue gauche du caisson de droite est masquée.
-    for j, cab in enumerate(scene_cabinets):
-        parent = cab.get('parent_index')
-        if parent is None or not (0 <= parent < len(scene_cabinets)):
+    # Joue entre deux caissons accolés (même étage) : un seul panneau, celui du
+    # caisson de gauche ; la joue gauche du caisson de droite est masquée.
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    for i, cab_i in enumerate(scene_cabinets):
+        if not _joue_present(scene_cabinets, i, 'droite'):
             continue
-        direction = cab.get('attachment_dir')
-        if direction not in ('left', 'right'):
-            continue
-        left, right = (parent, j) if direction == 'right' else (j, parent)
-        if _joue_present(scene_cabinets, left, 'droite'):
-            scene_cabinets[right].setdefault('joue_spans', {}).setdefault('gauche', {})['covered'] = True
+        x_end = origins[i][0] + float(cab_i['dims']['L_raw'])
+        for j, cab_j in enumerate(scene_cabinets):
+            if (j != i and -1.0 <= origins[j][0] - x_end <= JOUE_GAP_TOLERANCE
+                    and abs(origins[j][2] - origins[i][2]) <= 1.0
+                    and abs(origins[j][1] - origins[i][1]) <= 1.0 + abs(
+                        float(cab_j['dims']['W_raw']) - float(cab_i['dims']['W_raw']))):
+                cab_j.setdefault('joue_spans', {}).setdefault('gauche', {})['covered'] = True
     _apply_top_joue_spans(scene_cabinets)
     return scene_cabinets
 
