@@ -1851,8 +1851,9 @@ def _fileur_sides(cab):
     return (fileur, 0.0) if dp.get('door_opening', 'right') == 'left' else (0.0, fileur)
 
 
-def get_top_joue_neighbor_index(scene_cabinets, cab_index, origins=None):
-    """Caisson accolé à droite de `cab_index`, dessus et façade alignés, sinon None."""
+def get_top_joue_neighbor_index(scene_cabinets, cab_index, origins=None, key='dessus'):
+    """Caisson accolé à droite de `cab_index`, façade alignée et dessus (joue de
+    dessus) ou dessous (joue de dessous) au même niveau, sinon None."""
     if not (0 <= cab_index < len(scene_cabinets)):
         return None
     if origins is None:
@@ -1861,14 +1862,14 @@ def get_top_joue_neighbor_index(scene_cabinets, cab_index, origins=None):
     cab = scene_cabinets[cab_index]
     d = cab.get('dims', {}) or {}
     x_end = origins[cab_index][0] + float(d.get('L_raw', 0.0) or 0.0)
-    top = origins[cab_index][2] + float(d.get('H_raw', 0.0) or 0.0)
+    top = origins[cab_index][2] + (float(d.get('H_raw', 0.0) or 0.0) if key == 'dessus' else 0.0)
     for j, other in enumerate(scene_cabinets):
         if j == cab_index:
             continue
         od = other.get('dims', {}) or {}
         if (abs(origins[j][0] - x_end) <= tol
                 and abs(origins[j][1] - origins[cab_index][1]) <= tol
-                and abs(origins[j][2] + float(od.get('H_raw', 0.0) or 0.0) - top) <= tol):
+                and abs(origins[j][2] + (float(od.get('H_raw', 0.0) or 0.0) if key == 'dessus' else 0.0) - top) <= tol):
             return j
     return None
 
@@ -1882,28 +1883,29 @@ def _apply_top_joue_spans(scene_cabinets):
     propre joue commune : on parcourt donc les caissons de gauche à droite.
     """
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
-    covered = set()
     order = sorted(range(len(scene_cabinets)), key=lambda k: origins[k][0])
-    for i in order:
-        cab = scene_cabinets[i]
-        joue = (cab.get('joues', {}) or {}).get('dessus', {}) or {}
-        neighbor = get_top_joue_neighbor_index(scene_cabinets, i, origins)
-        is_covered = i in covered
-        span_right = bool(joue.get('enabled') and joue.get('span_right')
-                          and neighbor is not None and not is_covered)
-        span = {'covered': is_covered, 'span_right': span_right,
-                'neighbor': neighbor, 'front_door': cabinet_has_front_door(cab)}
-        if span_right:
-            covered.add(neighbor)
-            nb = scene_cabinets[neighbor]
-            # Du début utile de ce caisson (après un fileur à gauche) à la fin
-            # utile du voisin (avant un fileur à droite).
-            start = origins[i][0] + _fileur_sides(cab)[0]
-            end = (origins[neighbor][0] + float(nb.get('dims', {}).get('L_raw', 0.0) or 0.0)
-                   - _fileur_sides(nb)[1])
-            span['span_length'] = max(0.0, end - start)
-            span['front_door'] = span['front_door'] or cabinet_has_front_door(nb)
-        cab.setdefault('joue_spans', {})['dessus'] = span
+    for key in JOUE_TOP_BOTTOM_KEYS:
+        covered = set()
+        for i in order:
+            cab = scene_cabinets[i]
+            joue = (cab.get('joues', {}) or {}).get(key, {}) or {}
+            neighbor = get_top_joue_neighbor_index(scene_cabinets, i, origins, key)
+            is_covered = i in covered
+            span_right = bool(joue.get('enabled') and joue.get('span_right')
+                              and neighbor is not None and not is_covered)
+            span = {'covered': is_covered, 'span_right': span_right,
+                    'neighbor': neighbor, 'front_door': cabinet_has_front_door(cab)}
+            if span_right:
+                covered.add(neighbor)
+                nb = scene_cabinets[neighbor]
+                # Du début utile de ce caisson (après un fileur à gauche) à la fin
+                # utile du voisin (avant un fileur à droite).
+                start = origins[i][0] + _fileur_sides(cab)[0]
+                end = (origins[neighbor][0] + float(nb.get('dims', {}).get('L_raw', 0.0) or 0.0)
+                       - _fileur_sides(nb)[1])
+                span['span_length'] = max(0.0, end - start)
+                span['front_door'] = span['front_door'] or cabinet_has_front_door(nb)
+            cab.setdefault('joue_spans', {})[key] = span
     return scene_cabinets
 
 
@@ -1946,8 +1948,8 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
         feet = bool(has_feet) and joue.get('model', 'floor_length') == 'floor_length' \
             and span.get('on_floor', True)
         front_door = bool(span.get('front_door', front_door))
-    elif joue_key == 'dessus':
-        span = (cabinet.get('joue_spans', {}) or {}).get('dessus', {}) or {}
+    elif joue_key in JOUE_TOP_BOTTOM_KEYS:
+        span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
         if span.get('covered'):
             return None
         if span.get('span_right'):

@@ -1228,7 +1228,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             if _joue_span.get('span_up'):
                 _child = get_cabinet_above_index(scene, i)
                 _joue_ref = f"{joue_label} commune (C{i}+C{_child})"
-            elif joue_key == 'dessus' and _joue_span.get('span_right'):
+            elif joue_key in ('dessus', 'dessous') and _joue_span.get('span_right'):
                 _joue_ref = f"{joue_label} commune (C{i}+C{_joue_span.get('neighbor')})"
             all_parts.append({
                 "Lettre": f"C{i}-J{joue_key[:1].upper()}",
@@ -3166,9 +3166,9 @@ with col1:
                                 "caisson du dessous : réglez-la sur ce caisson."
                             )
                             continue
-                        if joue_key == 'dessus' and _jspan.get('covered'):
+                        if joue_key in ('dessus', 'dessous') and _jspan.get('covered'):
                             st.info(
-                                "Le dessus est habillé par la joue de dessus commune du "
+                                f"Ce côté est habillé par la {joue_label.lower()} commune du "
                                 "caisson de gauche : réglez-la sur ce caisson."
                             )
                             continue
@@ -3246,13 +3246,13 @@ with col1:
                                 st.caption(f"Hauteur complète : {_full_len:.0f} mm (cache-pieds compris).")
                             else:
                                 joue['custom_height'] = 0.0
-                        if joue_key == 'dessus':
-                            # Joue de dessus commune aux deux caissons côte à côte
+                        if joue_key in ('dessus', 'dessous'):
+                            # Joue de dessus / dessous commune aux deux caissons côte à côte
                             # (pendant de la joue latérale commune des superposés).
-                            _right_j = get_top_joue_neighbor_index(_scene_j, idx) if enabled else None
+                            _right_j = get_top_joue_neighbor_index(_scene_j, idx, key=joue_key) if enabled else None
                             if _right_j is not None:
                                 joue['span_right'] = st.checkbox(
-                                    "Joue de dessus commune avec le caisson de droite",
+                                    f"{joue_label} commune avec le caisson de droite",
                                     value=bool(joue.get('span_right', False)),
                                     key=f"joue_span_right_{joue_key}_{idx}",
                                 )
