@@ -1423,7 +1423,9 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         _rx_max = zone_x_max if zone_x_max is not None else L_raw - t_lr
                         _ry_min, _ry_max = mobile_shelf_rack_y_range(
                             cab, _rx_min, _rx_max, t_tb + float(s.get('height', 0.0)) + s_th / 2.0)
-                        rack_main = mobile_shelf_rack_holes(W_mont, _ry_min, _ry_max, front=s_setback)
+                        # Montant pleine profondeur : le fond encastré occupe les 19 derniers mm,
+                        # la rangée arrière se mesure depuis la face du fond.
+                        rack_main = mobile_shelf_rack_holes(W_mont, _ry_min, _ry_max, front=s_setback, rear=W_mont - W_inner)
                         rack_div = mobile_shelf_rack_holes(W_inner, _ry_min, _ry_max, front=s_setback)
                         # Montant droit : avant de la feuille en x = W_mont.
                         rack_md = [dict(h, x=_x_md(h['x'])) for h in rack_main]

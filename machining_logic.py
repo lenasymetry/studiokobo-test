@@ -626,17 +626,18 @@ def mobile_shelf_rack_y_range(cabinet, x_min, x_max, y_shelf):
     return t_tb, H - t_tb
 
 
-def mobile_shelf_rack_holes(panel_w, y_min, y_max, front=0.0):
+def mobile_shelf_rack_holes(panel_w, y_min, y_max, front=0.0, rear=0.0):
     """Trous de crémaillère d'une face : 2 rangées (x = front + 50 et
-    panel_w - 50 ; `front` = recul de l'étagère derrière un montant de charnière),
-    pas de 64 mm, série centrée dans [y_min, y_max] avec au moins 32 mm de
-    marge à chaque bout."""
+    panel_w - rear - 50 ; `front` = recul de l'étagère derrière un montant de
+    charnière, `rear` = partie arrière de la pièce prise par le fond encastré,
+    la rangée arrière étant mesurée depuis la face du fond), pas de 64 mm, série
+    centrée dans [y_min, y_max] avec au moins 32 mm de marge à chaque bout."""
     span = float(y_max) - float(y_min) - 2.0 * MOBILE_RACK_END_MARGIN_MM
-    if span < 0.0 or float(panel_w) - float(front) <= 2.0 * MOBILE_RACK_EDGE_MM:
+    if span < 0.0 or float(panel_w) - float(front) - float(rear) <= 2.0 * MOBILE_RACK_EDGE_MM:
         return []
     n = int(span // MOBILE_RACK_PITCH_MM) + 1
     y0 = float(y_min) + (float(y_max) - float(y_min) - (n - 1) * MOBILE_RACK_PITCH_MM) / 2.0
-    xs = (float(front) + MOBILE_RACK_EDGE_MM, float(panel_w) - MOBILE_RACK_EDGE_MM)
+    xs = (float(front) + MOBILE_RACK_EDGE_MM, float(panel_w) - float(rear) - MOBILE_RACK_EDGE_MM)
     return [{'type': 'etagere_taquet', 'x': x, 'y': y0 + i * MOBILE_RACK_PITCH_MM, 'diam_str': MOBILE_RACK_DIAM}
             for x in xs for i in range(n)]
 
