@@ -1532,6 +1532,43 @@ def drawer_piece_dims(cabinet, drp, zones):
     }
 
 
+def zone_door_entry(cabinet, zone, door_type='single', opening='right'):
+    """Porte posée sur UNE zone (entre deux montants/étagères) : entrée de
+    `imported_doors` (même modèle que les portes d'import web), cotes en mm dans
+    le repère du caisson (y depuis le bas).
+
+    Largeur : même règle qu'une porte de colonne (en applique sur les montants,
+    jeu de chaque côté). Hauteur : de l'étagère (ou du bord du caisson) à la
+    suivante, un jeu en haut et en bas ; une frontière interne est prise au
+    milieu de l'étagère (19 mm), les bords extérieurs au bord du caisson.
+    """
+    dims = cabinet.get('dims', {}) or {}
+    H = float(dims.get('H_raw', 0.0) or 0.0)
+    t_tb = float(dims.get('t_tb_raw', 19.0) or 0.0)
+    dp = cabinet.get('door_props', {}) or {}
+    gap = float(dp.get('door_gap', 2.0) or 0.0)
+    x0, x1 = column_cover_span(cabinet, (float(zone['x_min']), float(zone['x_max'])))
+    y_lo = float(zone['y_min'])
+    y_hi = float(zone['y_max'])
+    bottom = 0.0 if y_lo <= t_tb + 0.5 else y_lo - 9.5
+    top = H if y_hi >= H - t_tb - 0.5 else y_hi + 9.5
+    entry = {
+        'x_left_mm': x0 + gap, 'x_right_mm': x1 - gap,
+        'door_bottom_offset': bottom + gap, 'door_face_H_raw': max(0.0, top - bottom - 2.0 * gap),
+        'door_thickness': float(dp.get('door_thickness', 19.0) or 19.0), 'door_gap': gap,
+        'door_opening': opening if opening in ('left', 'right') else 'right',
+        'has_explicit_opening': True,
+        'material': dp.get('material', 'Matière Porte'),
+        'zone_id': zone.get('id'),
+        'stored_zone_coords': {k: zone[k] for k in ('x_min', 'x_max', 'y_min', 'y_max')},
+        'from_zone_ui': True,
+    }
+    if door_type == 'double':
+        entry['is_double_leaf'] = True
+        entry['door_opening'] = None
+    return entry
+
+
 def door_columns(cabinet):
     """Colonnes où poser une porte : entre deux montants (principaux ou
     secondaires), sur toute la hauteur. [{'x_min', 'x_max'}] en mm, repère

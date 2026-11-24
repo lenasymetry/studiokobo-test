@@ -99,6 +99,7 @@ from machining_logic import (
     cabinet_door_is_hidden,
     get_door_vertical_geometry,
     door_top_extension,
+    zone_door_entry,
     get_hinge_y_positions,
     get_cache_pied_drop,
     cabinet_rests_on_floor,
@@ -2359,6 +2360,47 @@ with col1:
                     zone_options = [None] + [z['id'] for z in all_zones_2d]
                     zone_labels = ["Tout le caisson"] + [f"{z['label']} (X:{z['x_min']:.0f}-{z['x_max']:.0f}mm, Y:{z['y_min']:.0f}-{z['y_max']:.0f}mm)" for z in all_zones_2d]
                     
+                    # ── Portes sur une zone (entre montants / étagères) ─────────
+                    with st.expander("Portes sur une zone du caisson", expanded=bool(selected_cab.get('imported_doors'))):
+                        st.caption("Pose une porte seulement sur une zone (colonne ET hauteur entre étagères), "
+                                   "au lieu du caisson entier. Plusieurs portes possibles ; "
+                                   "elles remplacent la porte pleine du caisson.")
+                        _zd_zones = all_zones_2d
+                        if not _zd_zones:
+                            st.info("Aucune zone : ajoutez des étagères ou des montants secondaires.")
+                        else:
+                            _zd_label = lambda zi: (f"{_zd_zones[zi]['label']} — x {_zd_zones[zi]['x_min']:.0f}→{_zd_zones[zi]['x_max']:.0f}, "
+                                                    f"h {_zd_zones[zi]['y_min']:.0f}→{_zd_zones[zi]['y_max']:.0f} mm")
+                            st.selectbox("Zone", options=list(range(len(_zd_zones))), format_func=_zd_label, key=f"zone_door_zone_{idx}")
+                            st.selectbox("Type", options=['single', 'double'], format_func=lambda x: 'Simple' if x == 'single' else 'Double', key=f"zone_door_type_{idx}")
+                            if st.session_state.get(f"zone_door_type_{idx}", 'single') == 'single':
+                                st.selectbox("Sens d'ouverture", options=['right', 'left'], format_func=lambda x: 'Droite' if x == 'right' else 'Gauche', key=f"zone_door_open_{idx}")
+                            def _add_zone_door(_i=idx):
+                                _c = st.session_state['scene_cabinets'][_i]
+                                _zs = calculate_all_zones_2d(_c, include_all_elements=False)
+                                _zi = st.session_state.get(f"zone_door_zone_{_i}", 0)
+                                if not (0 <= _zi < len(_zs)):
+                                    return
+                                _e = zone_door_entry(_c, _zs[_zi], st.session_state.get(f"zone_door_type_{_i}", 'single'),
+                                                     st.session_state.get(f"zone_door_open_{_i}", 'right'))
+                                _lst = _c.setdefault('imported_doors', [])
+                                # Une seule porte par zone : on remplace celle qui existe.
+                                _lst[:] = [d for d in _lst if d.get('zone_id') != _e['zone_id'] or not d.get('from_zone_ui')]
+                                _lst.append(_e)
+                                _lst.sort(key=lambda d: (float(d.get('door_bottom_offset', 0.0)), float(d.get('x_left_mm', 0.0))))
+                            st.button("🚪 Poser la porte sur cette zone", key=f"zone_door_add_{idx}", on_click=_add_zone_door, use_container_width=True)
+                        _zd_list = selected_cab.get('imported_doors') or []
+                        for _di, _d in enumerate(_zd_list):
+                            _dc1, _dc2 = st.columns([4, 1])
+                            _dc1.caption(f"Porte {_di + 1} : {float(_d.get('x_right_mm', 0)) - float(_d.get('x_left_mm', 0)):.0f} × "
+                                         f"{float(_d.get('door_face_H_raw', 0)):.0f} mm, bas à {float(_d.get('door_bottom_offset', 0)):.0f} mm"
+                                         + (" (double)" if _d.get('is_double_leaf') else ""))
+                            def _del_zone_door(_i=idx, _k=_di):
+                                _l = st.session_state['scene_cabinets'][_i].get('imported_doors') or []
+                                if 0 <= _k < len(_l):
+                                    _l.pop(_k)
+                            _dc2.button("✖", key=f"zone_door_del_{idx}_{_di}", on_click=_del_zone_door, help="Retirer cette porte")
+
                     st.markdown("#### Porte (Façade)")
                     st.toggle("Ajouter une porte", value=d_p['has_door'], key=f"has_door_{idx}", on_change=lambda: update_selected_cabinet_door('has_door'))
 
