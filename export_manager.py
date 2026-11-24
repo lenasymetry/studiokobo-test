@@ -394,7 +394,10 @@ def _add_plan_to_dxf(msp, title, Lp, Wp, Tp, fh, t_long_h, t_cote_h, proj_for_pl
             tranche_offset = max(12.0, Tp / 2.0)
             
             # Draw on BOTH side edges (left and right)
-            for side_name, tx in [("SIDE_LEFT", tg_x0 + tranche_offset), ("SIDE_RIGHT", td_x0 + tranche_offset)]:
+            _sides = [("SIDE_LEFT", tg_x0 + tranche_offset), ("SIDE_RIGHT", td_x0 + tranche_offset)]
+            if hole.get('only_edge') in ('gauche', 'droit'):   # une seule tranche percée
+                _sides = _sides[:1] if hole['only_edge'] == 'gauche' else _sides[1:]
+            for side_name, tx in _sides:
                 holes_drawn.append({
                     "zone": side_name,
                     "world_x": tx,

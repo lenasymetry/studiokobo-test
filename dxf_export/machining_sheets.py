@@ -383,7 +383,8 @@ class _Sheet:
                 t = _num(h.get("x"), None)
             if t is None or t < -0.5 or t > self.W + 0.5:
                 continue
-            for e in ("gauche", "droit"):
+            # Perçage d'une seule tranche (plan de travail contre une joue), sinon les deux.
+            for e in ((h["only_edge"],) if h.get("only_edge") in ("gauche", "droit") else ("gauche", "droit")):
                 out[e].append({**h, "_t": t})
         return out
 
