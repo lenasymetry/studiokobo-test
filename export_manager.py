@@ -965,7 +965,19 @@ def _door_hinge_rows_for_cabinet(scene, cab_idx, cab):
     return rows
 
 
-def _upright_plans(cab, upright, title, W_mont, h_side, t_lr, chants, holes, tranche_holes, tranche_long_holes=()):
+def _worktop_machining_for_scene(scene):
+    """Perçages des plans de travail pour la scène, selon les options du projet."""
+    from machining_logic import worktop_machining, worktop_lifts
+    has_feet = bool(st.session_state.get('has_feet', False))
+    fh = float(st.session_state.get('foot_height', 0.0) or 0.0)
+    lifts = worktop_lifts(scene, has_feet, fh, st.session_state.get('feet_level_mode', 'cabinet'))
+    return worktop_machining(
+        scene, bool(st.session_state.get('worktop_fuse', True)),
+        bool(st.session_state.get('worktop_overhang', False)), lifts, has_feet, fh)
+
+
+def _upright_plans(cab, upright, title, W_mont, h_side, t_lr, chants, holes, tranche_holes, tranche_long_holes=(),
+                   worktop_holes=()):
     """Feuille(s) d'un montant principal.
 
     Sans joue : une feuille (face intérieure). Avec une joue : deux feuilles,
@@ -973,11 +985,17 @@ def _upright_plans(cab, upright, title, W_mont, h_side, t_lr, chants, holes, tra
     l'extérieur (repère retourné en profondeur), avec les tourillons
     d'assemblage montant/joue.
     """
-    if not upright_has_joue(cab, upright):
+    has_joue = upright_has_joue(cab, upright)
+    if not has_joue and not worktop_holes:
         return [(title, W_mont, h_side, t_lr, chants, holes, list(tranche_long_holes), tranche_holes, None)]
     outer_chants = dict(chants)
     outer_chants['Chant Gauche'], outer_chants['Chant Droit'] = chants.get('Chant Droit', False), chants.get('Chant Gauche', False)
-    outer_holes = [dict(h, x=float(W_mont) - float(h['x'])) for h in upright_joue_holes(cab)]
+    outer_holes = [dict(h, x=float(W_mont) - float(h['x'])) for h in upright_joue_holes(cab)] if has_joue else []
+    # Tourillons de fixation d'un plan de travail (face extérieure, mêmes positions
+    # que sur la tranche du plan) : x = profondeur depuis l'avant. Vue de l'extérieur,
+    # le montant gauche regarde vers -x (avant à droite de la feuille), le droit vers +x.
+    outer_holes += [dict(h, x=(float(W_mont) - float(h['x'])) if upright == 'mg' else float(h['x']))
+                    for h in worktop_holes]
     return [
         (f"{title} - 1/2", W_mont, h_side, t_lr, chants, holes, list(tranche_long_holes), tranche_holes, None),
         (f"{title} - 2/2", W_mont, h_side, t_lr, outer_chants, outer_holes, [], [], None),
@@ -1252,6 +1270,12 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
 
     try:
         plan_quantities = {}  # Initialiser au niveau de la fonction pour éviter UnboundLocalError
+        # Plans de travail : fixation par tourillons contre montants / joues.
+        _wt_all = _worktop_machining_for_scene(st.session_state.get('scene_cabinets') or cabinets_to_process)
+        _wt_upright = {}
+        for _w in _wt_all:
+            for _k, _hl in _w['upright'].items():
+                _wt_upright.setdefault(_k, []).extend(_hl)
         for i, cab in enumerate(cabinets_to_process):
             cab_idx = indices_to_process[i]
             dims = cab['dims']
@@ -1707,10 +1731,12 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Haut", c_trav), th_holes, tholes_longue, tholes_cote, None))
             if base_el.get('has_left_upright', True):
                 c_mg = debit_piece_chants(cab, "Montant Gauche", dict(c_mont, **UPRIGHT_DEFAULT_CHANTS))
-                plans.extend(_upright_plans(cab, "mg", "Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, tranche_holes_mg, foot_pieces['mg']))
+                plans.extend(_upright_plans(cab, "mg", "Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, tranche_holes_mg, foot_pieces['mg'],
+                                            worktop_holes=_wt_upright.get((cab_idx, 'mg'), [])))
             if base_el.get('has_right_upright', True):
                 c_md = debit_piece_chants(cab, "Montant Droit", dict(c_mont, **UPRIGHT_DEFAULT_CHANTS))
-                plans.extend(_upright_plans(cab, "md", "Montant Droit (Md)", W_mont, h_side, t_lr, c_md, holes_md, tranche_holes_md, foot_pieces['md']))
+                plans.extend(_upright_plans(cab, "md", "Montant Droit (Md)", W_mont, h_side, t_lr, c_md, holes_md, tranche_holes_md, foot_pieces['md'],
+                                            worktop_holes=_wt_upright.get((cab_idx, 'md'), [])))
             if base_el.get('has_back_panel', True):
                 plans.append(("Panneau Arrière (F)", W_back, H_back, t_fb, c_fond, holes_fond, fond_t_long, fond_t_cote, None))
 
@@ -1925,6 +1951,16 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
 
             # --- ÉTAGÈRES VERTICALES : tourillons dans les tranches haut/bas ---
             plans.extend(vertical_shelf_plans(cab, cab_idx))
+
+            # --- PLAN DE TRAVAIL : feuille portée par le premier caisson couvert ---
+            for _w in _wt_all:
+                _wt = _w['worktop']
+                if _wt['indices'][0] == cab_idx:
+                    plans.append((
+                        "Plan de travail (" + "+".join(f"C{k}" for k in _wt['indices']) + ")",
+                        _wt['length'], _wt['width'], _wt['thickness'],
+                        {"Chant Avant": True, "Chant Arrière": False, "Chant Gauche": True, "Chant Droit": True},
+                        [], [], list(_w['side_holes']), None))
 
             dxf_expected_count += len(plans)
             for item in plans:

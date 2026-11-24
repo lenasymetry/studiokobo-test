@@ -128,6 +128,8 @@ from machining_logic import (
     _joue_present,
     scene_has_mixed_feet,
     get_worktops,
+    worktop_machining,
+    worktop_lifts,
     worktop_eligible_indices,
     WORKTOP_OVERHANG_MM,
     foot_lifts_mm,
@@ -306,9 +308,17 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
         # Chaque pièce a sa feuille : joues, plinthes et fileurs de colonne
         # (sans perçage) en plus,
         # reprises de la feuille de débit, après les feuilles de leur caisson.
+        _worktop_joue_holes = {}
+        try:
+            from export_manager import _worktop_machining_for_scene
+            for _w in _worktop_machining_for_scene(st.session_state['scene_cabinets']):
+                for _k, _hl in _w['joue'].items():
+                    _worktop_joue_holes.setdefault(_k, []).extend(_hl)
+        except Exception:
+            _worktop_joue_holes = {}
         for part in all_parts or []:
             ref = str(part.get("Référence Pièce", ""))
-            if not any(k in ref.lower() for k in ("joue", "plinthe", "fileur colonne", "plan de travail")):
+            if not any(k in ref.lower() for k in ("joue", "plinthe", "fileur colonne")):
                 continue
             caissons = str(part.get("Caisson", ""))
             first_c = caissons.split(",")[0].strip()
@@ -363,6 +373,22 @@ def _generate_and_store_exports(all_parts, selected_materials=None):
                 if (existing.get("project") or {}).get("corps_meuble") == corps:
                     insert_at = idx_p + 1
             sheet_plans.insert(insert_at, extra_plan)
+            # Joue touchée par l'extrémité d'un plan de travail : 2e feuille, face
+            # extérieure, avec les tourillons du plan (mêmes positions).
+            if _worktop_joue_holes and "joue" in _ref_l and ("gauche" in _ref_l or "droite" in _ref_l):
+                try:
+                    _wk = (int(first_c[1:]), 'gauche' if "gauche" in _ref_l else 'droite')
+                except ValueError:
+                    _wk = None
+                _wh = _worktop_joue_holes.get(_wk)
+                if _wh:
+                    _p2 = copy.deepcopy(extra_plan)
+                    _p2["title"] = f"{ref} - 2/2"
+                    _p2["chants"]["Chant Avant"], _p2["chants"]["Chant Arrière"] = (
+                        extra_plan["chants"]["Chant Arrière"], extra_plan["chants"]["Chant Avant"])
+                    _p2["face_holes"] = apply_face_hole_depths(_p2["title"], _wh)
+                    _p2["tranche_long_holes"], _p2["tranche_side_holes"] = [], []
+                    sheet_plans.insert(insert_at + 1, _p2)
         logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
         dwg_data = export_machining_sheets_dxf(
             sheet_plans,
@@ -1037,10 +1063,7 @@ def has_holes_for_piece(ref_key, cabinet, piece_data=None):
 
 def _worktop_lifts(scene, has_feet, foot_height):
     """Rehausse des caissons sur pieds quand la 3D pose les pieds au sol (sinon None)."""
-    if (has_feet and st.session_state.get('feet_level_mode', 'cabinet') == 'floor'
-            and scene_has_mixed_feet(scene)):
-        return foot_lifts_mm(scene, foot_height)
-    return None
+    return worktop_lifts(scene, has_feet, foot_height, st.session_state.get('feet_level_mode', 'cabinet'))
 
 
 def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
@@ -1517,10 +1540,12 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
 
     # Plans de travail (débit uniquement) : un plan par caisson coché, ou un plan
     # continu sur des caissons côte à côte ; rattaché au premier d'entre eux.
-    for wt in get_worktops(
+    for _wm in worktop_machining(
         scene, bool(st.session_state.get('worktop_fuse', True)),
         bool(st.session_state.get('worktop_overhang', False)), _worktop_lifts(scene, has_feet, foot_height),
+        bool(has_feet), float(foot_height or 0.0),
     ):
+        wt = _wm['worktop']
         _first = wt['indices'][0]
         merged_parts.append({
             "Lettre": f"C{_first}-PT",
@@ -1535,7 +1560,8 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             "Chant Arrière": False,
             "Chant Gauche": True,
             "Chant Droit": True,
-            "Usinage": "",
+            # Tranche tourillonnée quand le plan touche un montant ou une joue.
+            "Usinage": "Tourillons tranche" if _wm['side_holes'] else "",
         })
     return merged_parts, shelf_dims_cache
 

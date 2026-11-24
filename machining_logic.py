@@ -2369,6 +2369,129 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Plan de travail : fixation par tourillons contre un montant ou une joue
+# ─────────────────────────────────────────────────────────────────────────────
+WORKTOP_DOWEL_EDGE_MM = 50.0       # 1er / dernier tourillon : 50 mm de l'avant / de l'arrière
+WORKTOP_DOWEL_PITCH_MM = 100.0     # entre-axe visé (réparti uniformément)
+WORKTOP_DOWEL_PANEL_MARGIN_MM = 15.0   # mini entre un tourillon et le bord du panneau percé
+
+
+def worktop_dowel_positions(depth):
+    """Tourillons de la tranche d'un plan, le long de sa profondeur (mm depuis
+    l'avant) : 50 mm des bords, entre-axe réparti uniformément le plus proche
+    de 100 mm (proportionnel à la profondeur), 2 tourillons au minimum."""
+    depth = float(depth)
+    span = depth - 2.0 * WORKTOP_DOWEL_EDGE_MM
+    if span <= 0.0:
+        return [depth / 2.0] if depth > 0.0 else []
+    n = max(2, int(round(span / WORKTOP_DOWEL_PITCH_MM)) + 1)
+    return [WORKTOP_DOWEL_EDGE_MM + i * span / (n - 1) for i in range(n)]
+
+
+def worktop_lifts(scene_cabinets, has_feet, foot_height, level_mode):
+    """Rehausse des caissons sur pieds en mode « pieds au sol » (sinon None)."""
+    if has_feet and level_mode == 'floor' and scene_has_mixed_feet(scene_cabinets):
+        return foot_lifts_mm(scene_cabinets, foot_height)
+    return None
+
+
+def worktop_machining(scene_cabinets, fuse=True, overhang=False, lifts=None,
+                      has_feet=False, foot_height=0.0):
+    """Perçages de fixation des plans de travail.
+
+    Quand l'extrémité (gauche / droite) d'un plan touche le côté d'un caisson
+    plus haut, le plan est tourillonné dans sa tranche et le panneau touché
+    reçoit les trous en vis-à-vis, aux mêmes endroits (tourillons, pas de vis) :
+    la joue de ce côté si elle existe (face extérieure), sinon le montant
+    (face extérieure).
+
+    Retourne une liste (un élément par plan) :
+    {'worktop': plan, 'side_holes': [...],           # feuille du plan, repère pièce
+     'upright': {(caisson, 'mg'|'md'): [...]},       # x = profondeur depuis l'avant, y = hauteur
+     'joue': {(caisson, 'gauche'|'droite'): [...]}}  # feuille 2/2 de la joue (face extérieure)
+    """
+    worktops = get_worktops(scene_cabinets, fuse, overhang, lifts)
+    if not worktops:
+        return []
+    origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    lifts = lifts or [0.0] * len(scene_cabinets)
+    out = []
+    for wt in worktops:
+        thickness = float(wt['thickness'])
+        z_c = float(wt['z_top']) + thickness / 2.0
+        ds = worktop_dowel_positions(wt['width'])
+        item = {'worktop': wt, 'side_holes': [], 'upright': {}, 'joue': {}}
+        x_left, x_right = float(wt['x0']), float(wt['x0']) + float(wt['length'])
+        done = set()   # (côté, d) déjà percé
+        for side, edge_x in (('left', x_left), ('right', x_right)):
+            edge_name = 'gauche' if side == 'left' else 'droit'
+            # Panneau touché : côté droit du voisin de gauche, côté gauche du voisin de droite.
+            joue_key = 'droite' if side == 'left' else 'gauche'
+            up_key = 'md' if side == 'left' else 'mg'
+            for n, cab in enumerate(scene_cabinets):
+                if n in wt['indices']:
+                    continue
+                ox, oy, oz = origins[n]
+                oz += float(lifts[n] or 0.0)
+                dims = cab['dims']
+                L, W, H = float(dims['L_raw']), float(dims['W_raw']), float(dims['H_raw'])
+                n_side_x = ox + L if side == 'left' else ox
+                span = (cab.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
+                joue_on = bool(((cab.get('joues', {}) or {}).get(joue_key, {}) or {}).get('enabled')) \
+                    and not span.get('covered')
+                geo = None
+                if joue_on:
+                    fileur = float((cab.get('door_props', {}) or {}).get('fileur_width', 0) or 0.0)
+                    geo = cabinet_joue_dims(cab, joue_key, bool(has_feet) and not cab.get('no_feet'),
+                                            foot_height, fileur)
+                if geo is not None and geo['length'] > 0 and geo['width'] > 0:
+                    t = float(geo['thickness'])
+                    face_x = n_side_x + t if side == 'left' else n_side_x - t
+                    if abs(face_x - edge_x) > 1.0:
+                        continue
+                    jy0 = oy - float(geo.get('front_offset', 0.0))
+                    jz0 = oz + float(geo.get('z_offset', 0.0))
+                    for d in ds:
+                        yj = wt['y_front'] + d - jy0
+                        zj = z_c - jz0
+                        m = WORKTOP_DOWEL_PANEL_MARGIN_MM
+                        if not (m <= yj <= geo['width'] - m and 20.0 <= zj <= geo['length'] - 20.0):
+                            continue
+                        if (side, d) in done:
+                            continue
+                        done.add((side, d))
+                        x = zj if joue_key == 'gauche' else float(geo['length']) - zj
+                        item['joue'].setdefault((n, joue_key), []).append(
+                            {'type': 'tourillon', 'x': x, 'y': yj, 'diam_str': "⌀8"})
+                        item['side_holes'].append({'type': 'tourillon', 'x': thickness / 2.0, 'y': d,
+                                                   'diam_str': "⌀8", 'only_edge': edge_name})
+                    continue
+                # Montant (pas de joue de ce côté)
+                if joue_on:
+                    continue
+                if abs(n_side_x - edge_x) > 1.0:
+                    continue
+                base_el = cab.get('base_elements', {}) or {}
+                if not base_el.get('has_right_upright' if side == 'left' else 'has_left_upright', True):
+                    continue
+                for d in ds:
+                    xd = wt['y_front'] + d - oy
+                    yh = z_c - oz
+                    m = WORKTOP_DOWEL_PANEL_MARGIN_MM
+                    if not (m <= xd <= W - m and 20.0 <= yh <= H - 20.0):
+                        continue
+                    if (side, d) in done:
+                        continue
+                    done.add((side, d))
+                    item['upright'].setdefault((n, up_key), []).append(
+                        {'type': 'tourillon', 'x': xd, 'y': yh, 'diam_str': "⌀8"})
+                    item['side_holes'].append({'type': 'tourillon', 'x': thickness / 2.0, 'y': d,
+                                               'diam_str': "⌀8", 'only_edge': edge_name})
+        out.append(item)
+    return out
+
+
 def scene_has_mixed_feet(scene_cabinets):
     """Des caissons au sol ont des pieds et d'autres non ?"""
     flags = {cabinet_has_foot(scene_cabinets, i)
