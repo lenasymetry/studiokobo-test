@@ -19,6 +19,7 @@ from typing import Iterator, List, Optional, Tuple
 import ezdxf
 import pymupdf
 from ezdxf.addons.drawing import Frontend, RenderContext, layout
+from ezdxf.math import BoundingBox2d
 from ezdxf.addons.drawing.pymupdf import PyMuPdfBackend
 
 PAPER_W, PAPER_H, MARGIN = 420.0, 297.0, 10.0   # = dxf_export.machining_sheets
@@ -120,13 +121,12 @@ def _add_text_layer(pg, lay, doc) -> int:
     """Superpose les textes du layout (cartouche + vue du viewport) à la page.
     Le cadre de la feuille remplit la largeur de la page : échelle et décalage
     s'en déduisent (mm papier -> pt)."""
-    frame_w_mm = PAPER_W - 2 * MARGIN
-    frame_h_mm = PAPER_H - 2 * MARGIN
-    s = pg.rect.width / frame_w_mm
-    y_top = (pg.rect.height - frame_h_mm * s) / 2.0     # haut du cadre, en pt
+    # La page PDF est rendue sur la feuille entière (420 x 297 mm, voir
+    # `dxf_to_pdf`) : mm papier -> pt, origine en haut à gauche.
+    s = pg.rect.width / PAPER_W
 
     def to_pt(x_mm: float, y_mm: float) -> Tuple[float, float]:
-        return (x_mm - MARGIN) * s, y_top + (PAPER_H - MARGIN - y_mm) * s
+        return x_mm * s, (PAPER_H - y_mm) * s
 
     n = 0
     # 1) cartouche : textes directement en coordonnées papier
@@ -183,7 +183,11 @@ def dxf_to_pdf(dxf_bytes: bytes) -> Optional[bytes]:
         backend = PyMuPdfBackend()
         Frontend(ctx, backend).draw_layout(lay)
         page = layout.Page(420, 297, layout.Units.mm, margins=layout.Margins.all(0))
-        data = backend.get_pdf_bytes(page, settings=layout.Settings(fit_page=True, scale=1))
+        # Zone rendue = la feuille entière (et non l'emprise du dessin) : le cadre garde
+        # ses marges de 10 mm et l'échelle est celle du DXF, sans zoom.
+        data = backend.get_pdf_bytes(
+            page, settings=layout.Settings(fit_page=True, scale=1),
+            render_box=BoundingBox2d([(0.0, 0.0), (PAPER_W, PAPER_H)]))
         with pymupdf.open("pdf", data) as part:
             pg = part[0]
             try:
