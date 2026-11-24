@@ -1054,14 +1054,20 @@ def _hinge_count_per_leaf(cab: Dict) -> int:
     return len(get_hinge_y_positions(leaf_h - door_top_extension(dp)))
 
 
+def _mm(value):
+    """Cote en mm : entière si ronde, sinon une décimale (580.5)."""
+    v = round(float(value), 1)
+    return int(v) if v == int(v) else v
+
+
 def _description_lines(cab: Dict, label: str) -> List[str]:
     dims = cab["dims"]
-    L   = int(round(float(dims["L_raw"])))
-    W   = int(round(float(dims["W_raw"])))
-    H   = int(round(float(dims["H_raw"])))
-    tl  = int(round(float(dims.get("t_lr_raw", 19))))
-    tt  = int(round(float(dims.get("t_tb_raw", 19))))
-    tb  = int(round(float(dims.get("t_fb_raw", 19))))
+    L   = _mm(dims["L_raw"])
+    W   = _mm(dims["W_raw"])
+    H   = _mm(dims["H_raw"])
+    tl  = _mm(dims.get("t_lr_raw", 19))
+    tt  = _mm(dims.get("t_tb_raw", 19))
+    tb  = _mm(dims.get("t_fb_raw", 19))
 
     base     = cab.get("base_elements", {})
     has_back = base.get("has_back_panel", True)

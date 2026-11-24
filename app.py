@@ -2201,7 +2201,7 @@ with col1:
             st.multiselect(
                 "Alignement des profondeurs : caissons alignés sur leur DOS",
                 options=_al_opts,
-                format_func=lambda i: f"C{i} — {_al_scene[i].get('name', i)} (prof. {_al_scene[i]['dims']['W_raw']:.0f})",
+                format_func=lambda i: f"C{i} — {_al_scene[i].get('name', i)} (prof. {_al_scene[i]['dims']['W_raw']:g})",
                 key='align_back_sel', on_change=_sync_align_y,
                 help="Les caissons choisis ont leur dos sur le même plan (celui du caisson le plus profond). "
                      "Les autres restent alignés sur leur face. Un caisson posé dessus suit celui du dessous.",
@@ -2316,13 +2316,13 @@ with col1:
                     st.text_input(f"Matière Corps", value=selected_cab.get('material_body', 'Matière Corps'), key=f"material_body_{idx}", on_change=lambda: update_selected_cabinet_material('material_body'))
                     st.markdown("##### Dimensions Externes")
                     dims = selected_cab['dims']
-                    st.number_input("Longueur (X)", value=dims['L_raw'], key=f"L_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('L_raw'), format="%.0f", step=1.0)
-                    st.number_input("Profondeur (Y)", value=dims['W_raw'], key=f"W_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('W_raw'), format="%.0f", step=1.0)
-                    st.number_input("Hauteur (Z)", value=dims['H_raw'], key=f"H_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('H_raw'), format="%.0f", step=1.0)
+                    st.number_input("Longueur (X)", value=dims['L_raw'], key=f"L_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('L_raw'), format="%.1f", step=1.0)
+                    st.number_input("Profondeur (Y)", value=dims['W_raw'], key=f"W_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('W_raw'), format="%.1f", step=1.0)
+                    st.number_input("Hauteur (Z)", value=dims['H_raw'], key=f"H_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('H_raw'), format="%.1f", step=1.0)
                     st.markdown("##### Épaisseurs des Panneaux")
-                    st.number_input("Parois latérales (Montants)", value=dims['t_lr_raw'], key=f"t_lr_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_lr_raw'), format="%.0f", step=1.0)
-                    st.number_input("Arrière (Fond)", value=dims['t_fb_raw'], key=f"t_fb_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_fb_raw'), format="%.0f", step=1.0)
-                    st.number_input("Haut/Bas (Traverses)", value=dims['t_tb_raw'], key=f"t_tb_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_tb_raw'), format="%.0f", step=1.0)
+                    st.number_input("Parois latérales (Montants)", value=dims['t_lr_raw'], key=f"t_lr_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_lr_raw'), format="%.1f", step=1.0)
+                    st.number_input("Arrière (Fond)", value=dims['t_fb_raw'], key=f"t_fb_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_fb_raw'), format="%.1f", step=1.0)
+                    st.number_input("Haut/Bas (Traverses)", value=dims['t_tb_raw'], key=f"t_tb_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_tb_raw'), format="%.1f", step=1.0)
                     
                     if st.session_state.get('has_feet'):
                         st.markdown("##### Pieds")
@@ -2429,14 +2429,14 @@ with col1:
                         if d_p.get('span_up'):
                             _h_total = get_cabinet_door_height_raw(selected_cab)
                             st.caption(
-                                f"Hauteur couverte : {selected_cab['dims']['H_raw']:.0f} + "
-                                f"{_stacked_cab['dims']['H_raw']:.0f} = {_h_total:.0f} mm"
+                                f"Hauteur couverte : {selected_cab['dims']['H_raw']:g} + "
+                                f"{_stacked_cab['dims']['H_raw']:g} = {_h_total:g} mm"
                             )
                             if abs(float(_stacked_cab['dims']['L_raw']) - float(selected_cab['dims']['L_raw'])) > 0.5:
                                 st.warning(
                                     "Les deux caissons n'ont pas la même longueur "
-                                    f"({selected_cab['dims']['L_raw']:.0f} mm en bas, "
-                                    f"{_stacked_cab['dims']['L_raw']:.0f} mm en haut) : "
+                                    f"({selected_cab['dims']['L_raw']:g} mm en bas, "
+                                    f"{_stacked_cab['dims']['L_raw']:g} mm en haut) : "
                                     "la porte commune est calée sur celle du caisson du bas."
                                 )
                             if _stacked_cab.get('door_props', {}).get('has_door'):
@@ -4007,6 +4007,10 @@ with col1:
                     else:
                         df = non_plinthe_df
 
+                    # Cotes à virgule : colonnes en float (sinon pandas refuse 545.5 dans une colonne entière).
+                    for _dc in ("Longueur (mm)", "Largeur (mm)", "Epaisseur"):
+                        if _dc in df.columns:
+                            df[_dc] = pd.to_numeric(df[_dc], errors='coerce').astype(float)
                     for row_idx, row in df.iterrows():
                         ref = str(row.get("Référence Pièce", ""))
                         ref_key = ref.split(" (")[0].strip()
@@ -5049,7 +5053,7 @@ with col2:
                         num_val = float(val)
                         # Si >= 1000, format entier sans virgule
                         if num_val >= 1000:
-                            return str(int(num_val))
+                            return str(int(num_val)) if num_val == int(num_val) else f"{num_val:.1f}"
                         else:
                             # Format décimal si nécessaire, sinon entier
                             if num_val == int(num_val):
