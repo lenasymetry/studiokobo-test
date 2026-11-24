@@ -1997,6 +1997,26 @@ def migrate_upright_wall_chants(scene_cabinets):
     return scene_cabinets
 
 
+# Montants principaux gauche / droit : chants avant, gauche et droit, jamais sur la
+# tranche arrière (contre le mur).
+UPRIGHT_DEFAULT_CHANTS = {'Chant Avant': True, 'Chant Arrière': False,
+                          'Chant Gauche': True, 'Chant Droit': True}
+
+
+def migrate_upright_chants_v3(scene_cabinets):
+    """Une seule fois par caisson : aligne les montants gauche / droit de la
+    feuille de débit sur la règle avant OUI, arrière NON, gauche OUI, droit OUI."""
+    for cab in scene_cabinets:
+        if cab.get('_upright_chant_v3'):
+            continue
+        for piece in cab.get('debit_data', []) or []:
+            ref = str(piece.get('Référence Pièce', '')).split(' (')[0].strip()
+            if ref in UPRIGHT_WALL_EDGE:
+                piece.update(UPRIGHT_DEFAULT_CHANTS)
+        cab['_upright_chant_v3'] = True
+    return scene_cabinets
+
+
 def migrate_traverse_wall_chants(scene_cabinets):
     """Une seule fois par caisson : retire le chant de la tranche arrière
     (contre le mur) des traverses encore réglées sur l'ancien défaut

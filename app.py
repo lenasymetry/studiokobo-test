@@ -81,6 +81,7 @@ from machining_logic import (
     apply_door_spans,
     apply_joue_spans,
     migrate_upright_wall_chants,
+    migrate_upright_chants_v3,
     migrate_traverse_wall_chants,
     cabinet_joue_dims,
     joue_drawer_advance_available,
@@ -174,6 +175,7 @@ def _apply_scene_spans(scene):
     apply_door_spans(scene)
     apply_joue_spans(scene)
     migrate_upright_wall_chants(scene)
+    migrate_upright_chants_v3(scene)
     migrate_traverse_wall_chants(scene)
 
 

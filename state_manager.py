@@ -70,10 +70,10 @@ def get_default_debit_data():
             "Largeur (mm)": 0,
             "Epaisseur": 0,
             "Chant Avant": True,
-            "Chant Arrière": True,
-            "Chant Gauche": True,
             # Tranche arrière, contre le mur : pas de chant.
-            "Chant Droit": False,
+            "Chant Arrière": False,
+            "Chant Gauche": True,
+            "Chant Droit": True,
             "Usinage": ""
         },
         {
@@ -82,9 +82,9 @@ def get_default_debit_data():
             "Largeur (mm)": 0,
             "Epaisseur": 0,
             "Chant Avant": True,
-            "Chant Arrière": True,
             # Tranche arrière, contre le mur : pas de chant.
-            "Chant Gauche": False,
+            "Chant Arrière": False,
+            "Chant Gauche": True,
             "Chant Droit": True,
             "Usinage": ""
         },

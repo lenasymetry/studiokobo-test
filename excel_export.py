@@ -23,8 +23,8 @@ def _clean(value):
 
 
 def _repere_reference(row, multi_cab):
-    """Cellule unique "A - C0 - Traverse Bas" (C0 seulement si plusieurs caissons)."""
-    lettre = _clean(row.get("Lettre", "")).split('-')[-1]
+    """Cellule unique "C0 - Traverse Bas" : nom de la pièce précédé de son
+    numéro de caisson (plus de lettre de repère)."""
     ref = _clean(row.get("Référence Pièce", ""))
     match = _CAB_SUFFIX_RE.search(ref)
     cabs = _cab_tokens(row.get("Caisson", ""))
@@ -32,12 +32,12 @@ def _repere_reference(row, multi_cab):
         # Joue commune : Caisson = "C0" mais référence "(C0+C1)" -> on garde les deux.
         cabs = sorted(set(cabs) | set(_cab_tokens(match.group(1))), key=lambda c: int(c[1:]))
         ref = ref[:match.start()].strip()
-    if multi_cab and cabs:
+    if cabs:
         ref = f"{'+'.join(cabs)} - {ref}"
     meuble = _clean(row.get("Meuble", ""))
     if meuble:
         ref = f"{meuble} · {ref}"
-    return f"{lettre} - {ref}" if lettre else ref
+    return ref
 
 
 def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
@@ -84,8 +84,7 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
     else:
         df_export["GroupeKey"] = "Défaut"
 
-    # Repère et référence dans une seule cellule ; le caisson n'est indiqué
-    # que si le meuble (ou chaque meuble d'une feuille commune) en a plusieurs.
+    # Référence de la pièce précédée de son numéro de caisson (sans lettre de repère).
     meuble_key = df_export["Meuble"].map(_clean) if "Meuble" in df_export.columns else pd.Series("", index=df_export.index)
     multi_by_meuble = {}
     for key in meuble_key.unique():
@@ -268,7 +267,7 @@ def create_styled_excel(project_info_dict, df_all_parts, save_data_dict=None):
         ws['K8'].border = border_outline_medium
 
         ws.merge_cells('B10:C11')
-        ws['B10'] = "Repère - Référence Pièce"
+        ws['B10'] = "Référence Pièce"
         ws['B10'].font = font_bold_std
         ws['B10'].alignment = Alignment(horizontal='center', vertical='center')
         for head_cell in ('B10', 'B11', 'C10', 'C11'):
