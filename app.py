@@ -100,6 +100,7 @@ from machining_logic import (
     get_door_vertical_geometry,
     door_top_extension,
     zone_door_entry,
+    cabinet_has_front_door,
     get_hinge_y_positions,
     get_cache_pied_drop,
     cabinet_rests_on_floor,
@@ -3276,6 +3277,13 @@ with col1:
                                 f"{LED_GROOVE_OFFSET_MM:.0f} mm du bord arrière)",
                                 value=bool(joue.get('led_strip', False)),
                                 key=f"joue_led_strip_{joue_key}_{idx}",
+                            )
+                        if enabled and bool(_jspan.get('front_door', cabinet_has_front_door(selected_cab))):
+                            joue['front_advance'] = st.checkbox(
+                                "Mettre la joue au niveau de la façade (avance de 20 mm devant la porte) ; "
+                                "décochée : profondeur exacte du caisson",
+                                value=bool(joue.get('front_advance', True)),
+                                key=f"joue_front_advance_{joue_key}_{idx}",
                             )
                         if enabled and joue_drawer_advance_available(selected_cab, joue_key):
                             joue['drawer_front_advance'] = st.checkbox(

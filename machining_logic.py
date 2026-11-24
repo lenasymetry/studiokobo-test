@@ -1965,7 +1965,10 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
     # Caisson à tiroir : avancée optionnelle des joues dessus/dessous (façade
     # 19 mm + 1 mm de jeu tiroir/caisson).
     drawer_adv = bool(joue.get('drawer_front_advance')) and joue_drawer_advance_available(cabinet, joue_key)
-    ext = JOUE_DOOR_FRONT_EXTENSION if (front_door or drawer_adv) else 0.0
+    # `front_advance` (case de l'onglet Joues, cochée par défaut) : la joue d'un
+    # meuble à porte avance au niveau de la façade, ou garde la profondeur exacte.
+    door_adv = front_door and bool(joue.get('front_advance', True))
+    ext = JOUE_DOOR_FRONT_EXTENSION if (door_adv or drawer_adv) else 0.0
     geo['width'] = float(geo['width']) + ext
     geo['front_offset'] = ext
     return geo
