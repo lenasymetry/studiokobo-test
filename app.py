@@ -2248,9 +2248,13 @@ with col1:
             def _toggle_junction_joue(_l, _r):
                 _sc = st.session_state['scene_cabinets']
                 _on = bool(st.session_state.get(f"junction_joue_{_l}_{_r}", False))
-                _sc[_l].setdefault('joues', {}).setdefault('droite', get_default_joue_props())['enabled'] = _on
-                if not _on:
-                    _sc[_r].setdefault('joues', {}).setdefault('gauche', get_default_joue_props())['enabled'] = False
+                # La joue entre deux caissons appartient au plus haut (à égalité, à gauche) :
+                # elle monte ainsi jusqu'à un plan de travail posé sur le plus bas.
+                _hl = float(_sc[_l]['dims'].get('H_raw', 0.0) or 0.0)
+                _hr = float(_sc[_r]['dims'].get('H_raw', 0.0) or 0.0)
+                _left_owns = _hl >= _hr
+                _sc[_l].setdefault('joues', {}).setdefault('droite', get_default_joue_props())['enabled'] = _on and _left_owns
+                _sc[_r].setdefault('joues', {}).setdefault('gauche', get_default_joue_props())['enabled'] = _on and not _left_owns
             for _l, _r in _junctions:
                 _jk = f"junction_joue_{_l}_{_r}"
                 st.session_state[_jk] = bool(_joue_present(_jn_scene, _l, 'droite') or _joue_present(_jn_scene, _r, 'gauche'))

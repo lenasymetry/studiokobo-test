@@ -40,6 +40,22 @@ def _stack_column(scene_cabinets, idx):
         current = nxt
 
 
+def junction_joue_owner_is_left(scene_cabinets, left, right):
+    """À quel caisson appartient la joue posée entre `left` et `right` ?
+    True = joue droite du caisson de gauche, False = joue gauche de celui de
+    droite, None = pas de joue. Si une seule est activée, c'est elle ; si les deux,
+    celle du caisson le plus haut (à hauteur égale, celui de gauche)."""
+    left_on = _joue_present(scene_cabinets, left, 'droite')
+    right_on = _joue_present(scene_cabinets, right, 'gauche')
+    if not (left_on or right_on):
+        return None
+    if left_on and right_on:
+        h_l = float(scene_cabinets[left]['dims'].get('H_raw', 0.0) or 0.0)
+        h_r = float(scene_cabinets[right]['dims'].get('H_raw', 0.0) or 0.0)
+        return h_l >= h_r
+    return left_on
+
+
 def junction_joue_gap(scene_cabinets, parent_idx, child_idx, direction):
     """Épaisseur (mm) de la joue posée ENTRE deux caissons accolés, 0 sans joue.
 
@@ -1820,19 +1836,38 @@ def apply_joue_spans(scene_cabinets):
                 'on_floor': cabinet_rests_on_floor(scene_cabinets, i),
             }
         cab['joue_spans'] = spans
-    # Joue entre deux caissons accolés (même étage) : un seul panneau, celui du
-    # caisson de gauche ; la joue gauche du caisson de droite est masquée.
+    # Joue entre deux caissons accolés (même étage) : un seul panneau. Il
+    # appartient au caisson le plus HAUT (à hauteur égale, celui de gauche) : c'est
+    # lui qui monte jusqu'au plan de travail posé sur l'autre. La joue du
+    # caisson voisin est masquée.
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
     for i, cab_i in enumerate(scene_cabinets):
-        if not _joue_present(scene_cabinets, i, 'droite'):
-            continue
         x_end = origins[i][0] + float(cab_i['dims']['L_raw'])
         for j, cab_j in enumerate(scene_cabinets):
-            if (j != i and -1.0 <= origins[j][0] - x_end <= JOUE_GAP_TOLERANCE
+            if not (j != i and -1.0 <= origins[j][0] - x_end <= JOUE_GAP_TOLERANCE
                     and abs(origins[j][2] - origins[i][2]) <= 1.0
                     and abs(origins[j][1] - origins[i][1]) <= 1.0 + abs(
                         float(cab_j['dims']['W_raw']) - float(cab_i['dims']['W_raw']))):
+                continue
+            # Une seule joue cochée, côté du caisson le plus bas : elle passe au plus haut
+            # (ses réglages suivent), pour monter jusqu'au plan posé sur le plus bas.
+            _on_l = bool(((cab_i.get('joues', {}) or {}).get('droite', {}) or {}).get('enabled'))
+            _on_r = bool(((cab_j.get('joues', {}) or {}).get('gauche', {}) or {}).get('enabled'))
+            _h_i = float(cab_i['dims'].get('H_raw', 0.0) or 0.0)
+            _h_j = float(cab_j['dims'].get('H_raw', 0.0) or 0.0)
+            if _on_l and not _on_r and _h_j > _h_i:
+                cab_j.setdefault('joues', {})['gauche'] = dict(cab_i['joues']['droite'])
+                cab_i['joues']['droite']['enabled'] = False
+            elif _on_r and not _on_l and _h_i > _h_j:
+                cab_i.setdefault('joues', {})['droite'] = dict(cab_j['joues']['gauche'])
+                cab_j['joues']['gauche']['enabled'] = False
+            owner_is_left = junction_joue_owner_is_left(scene_cabinets, i, j)
+            if owner_is_left is None:
+                continue
+            if owner_is_left:
                 cab_j.setdefault('joue_spans', {}).setdefault('gauche', {})['covered'] = True
+            else:
+                cab_i.setdefault('joue_spans', {}).setdefault('droite', {})['covered'] = True
     _apply_top_joue_spans(scene_cabinets)
     return scene_cabinets
 
