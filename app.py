@@ -2375,6 +2375,7 @@ with col1:
                             st.selectbox("Type", options=['single', 'double'], format_func=lambda x: 'Simple' if x == 'single' else 'Double', key=f"zone_door_type_{idx}")
                             if st.session_state.get(f"zone_door_type_{idx}", 'single') == 'single':
                                 st.selectbox("Sens d'ouverture", options=['right', 'left'], format_func=lambda x: 'Droite' if x == 'right' else 'Gauche', key=f"zone_door_open_{idx}")
+                            st.text_input("Matière de la porte", value=d_p.get('material', 'Matière Porte'), key=f"zone_door_mat_{idx}")
                             def _add_zone_door(_i=idx):
                                 _c = st.session_state['scene_cabinets'][_i]
                                 _zs = calculate_all_zones_2d(_c, include_all_elements=False)
@@ -2383,6 +2384,9 @@ with col1:
                                     return
                                 _e = zone_door_entry(_c, _zs[_zi], st.session_state.get(f"zone_door_type_{_i}", 'single'),
                                                      st.session_state.get(f"zone_door_open_{_i}", 'right'))
+                                _mat = str(st.session_state.get(f"zone_door_mat_{_i}", "") or "").strip()
+                                if _mat:
+                                    _e['material'] = _mat
                                 _lst = _c.setdefault('imported_doors', [])
                                 # Une seule porte par zone : on remplace celle qui existe.
                                 _lst[:] = [d for d in _lst if d.get('zone_id') != _e['zone_id'] or not d.get('from_zone_ui')]
@@ -2394,7 +2398,8 @@ with col1:
                             _dc1, _dc2 = st.columns([4, 1])
                             _dc1.caption(f"Porte {_di + 1} : {float(_d.get('x_right_mm', 0)) - float(_d.get('x_left_mm', 0)):.0f} × "
                                          f"{float(_d.get('door_face_H_raw', 0)):.0f} mm, bas à {float(_d.get('door_bottom_offset', 0)):.0f} mm"
-                                         + (" (double)" if _d.get('is_double_leaf') else ""))
+                                         + (" (double)" if _d.get('is_double_leaf') else "")
+                                         + f" — {_d.get('material', 'Matière Porte')}")
                             def _del_zone_door(_i=idx, _k=_di):
                                 _l = st.session_state['scene_cabinets'][_i].get('imported_doors') or []
                                 if 0 <= _k < len(_l):
