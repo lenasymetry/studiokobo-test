@@ -1556,10 +1556,8 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             "Longueur (mm)": wt['length'],
             "Largeur (mm)": wt['width'],
             "Epaisseur": wt['thickness'],
-            "Chant Avant": True,
-            "Chant Arrière": False,
-            "Chant Gauche": True,
-            "Chant Droit": True,
+            # Une tranche tourillonnée est contre un montant / une joue : pas de chant.
+            **_wm['chants'],
             # Tranche tourillonnée quand le plan touche un montant ou une joue.
             "Usinage": "Tourillons tranche" if _wm['side_holes'] else "",
         })

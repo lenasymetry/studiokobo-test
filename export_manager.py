@@ -1959,8 +1959,7 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                     plans.append((
                         "Plan de travail (" + "+".join(f"C{k}" for k in _wt['indices']) + ")",
                         _wt['length'], _wt['width'], _wt['thickness'],
-                        {"Chant Avant": True, "Chant Arrière": False, "Chant Gauche": True, "Chant Droit": True},
-                        [], [], list(_w['side_holes']), None))
+                        dict(_w['chants']), [], [], list(_w['side_holes']), None))
 
             dxf_expected_count += len(plans)
             for item in plans:

@@ -2527,6 +2527,11 @@ def worktop_machining(scene_cabinets, fuse=True, overhang=False, lifts=None,
                     item['side_holes'].append({'type': 'tourillon', 'x': thickness / 2.0, 'y': d,
                                                'diam_str': "⌀8", 'only_edge': edge_name})
         out.append(item)
+    # Une tranche percée est collée contre un montant / une joue : pas de chant.
+    for item in out:
+        edges = {h.get('only_edge') for h in item['side_holes']}
+        item['chants'] = {"Chant Avant": True, "Chant Arrière": False,
+                          "Chant Gauche": 'gauche' not in edges, "Chant Droit": 'droit' not in edges}
     return out
 
 
