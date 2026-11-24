@@ -98,6 +98,7 @@ from machining_logic import (
     get_cabinet_door_height_raw,
     cabinet_door_is_hidden,
     get_door_vertical_geometry,
+    door_top_extension,
     get_hinge_y_positions,
     get_cache_pied_drop,
     cabinet_rests_on_floor,
@@ -2184,6 +2185,25 @@ with col1:
                     st.button("➡️ Ajouter à droite", key="quick_add_right", on_click=add_cabinet, args=('right',), use_container_width=True)
 
         st.button("Vider la scène 🗑️", on_click=clear_scene, use_container_width=True)
+
+        # Alignement en profondeur : caissons de profondeurs différentes alignés
+        # sur leur face (défaut) ou sur leur dos.
+        _al_scene = st.session_state['scene_cabinets']
+        _al_opts = [i for i, c in enumerate(_al_scene) if c.get('attachment_dir') != 'up']
+        if len(_al_scene) >= 2 and _al_opts:
+            def _sync_align_y():
+                _sel = set(st.session_state.get('align_back_sel', []))
+                for _k, _c in enumerate(st.session_state['scene_cabinets']):
+                    _c['align_y'] = 'back' if _k in _sel else 'front'
+            st.session_state['align_back_sel'] = [i for i in _al_opts if _al_scene[i].get('align_y') == 'back']
+            st.multiselect(
+                "Alignement des profondeurs : caissons alignés sur leur DOS",
+                options=_al_opts,
+                format_func=lambda i: f"C{i} — {_al_scene[i].get('name', i)} (prof. {_al_scene[i]['dims']['W_raw']:.0f})",
+                key='align_back_sel', on_change=_sync_align_y,
+                help="Les caissons choisis ont leur dos sur le même plan (celui du caisson le plus profond). "
+                     "Les autres restent alignés sur leur face. Un caisson posé dessus suit celui du dessous.",
+            )
         st.markdown("---")
         st.markdown('<div class="kb-step">Etape 1D - Options globales</div>', unsafe_allow_html=True)
         st.markdown('<p class="kb-note">Activez les pieds uniquement si votre meuble est posé au sol. Par défaut tous les caissons au sol en reçoivent ; pour en retirer sous certains, décochez « Poser des pieds » dans Etape 2 &gt; Dimensions du caisson.</p>', unsafe_allow_html=True)
@@ -2436,6 +2456,7 @@ with col1:
                         if d_p.get('door_type')=='single': st.selectbox("Sens d'ouverture", options=['right', 'left'], index=0 if d_p.get('door_opening')=='right' else 1, format_func=lambda x: 'Droite' if x=='right' else 'Gauche', key=f"door_opening_{idx}", on_change=lambda: update_selected_cabinet_door('door_opening'))
                         st.number_input("Épaisseur (mm)", value=d_p.get('door_thickness', 19.0), key=f"door_thickness_{idx}", on_change=lambda: update_selected_cabinet_door('door_thickness'), format="%.0f", step=1.0)
                         st.selectbox("Modèle", options=['standard', 'floor_length'], index=0 if d_p.get('door_model')=='standard' else 1, format_func=lambda x: 'Standard' if x=='standard' else 'Cache-pied', key=f"door_model_{idx}", on_change=lambda: update_selected_cabinet_door('door_model'))
+                        st.number_input("Dépassement de la porte en haut (mm)", min_value=0.0, value=float(d_p.get('top_extension', 0.0) or 0.0), key=f"top_extension_{idx}", on_change=lambda: update_selected_cabinet_door('top_extension'), format="%.0f", step=1.0, help="Le vantail monte au-dessus du caisson de cette hauteur ; les charnières restent sur la partie qui couvre le caisson.")
                         st.number_input("Jeu extérieur (mm)", value=d_p.get('door_gap', 2.0), key=f"door_gap_{idx}", on_change=lambda: update_selected_cabinet_door('door_gap'), format="%.1f", step=0.1)
                         st.text_input("Matière Porte", value=d_p.get('material', 'Matière Porte'), key=f"door_material_{idx}", on_change=lambda: update_selected_cabinet_door_material('material'))
                         
@@ -2463,7 +2484,7 @@ with col1:
                                     cabinet_feet_active(selected_cab, st.session_state.get('has_feet', False)),
                                     st.session_state.get('foot_height', 0.0),
                                 )
-                                custom_positions = get_hinge_y_positions(_leaf_h)
+                                custom_positions = get_hinge_y_positions(_leaf_h - door_top_extension(d_p))
                                 d_p['custom_hinge_positions'] = list(custom_positions)
                             num_hinges = st.number_input(
                                 "Nombre de charnières",

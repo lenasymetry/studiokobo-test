@@ -85,7 +85,27 @@ def calculate_origins_recursively(scene_cabinets, unit_factor):
     for i in range(len(scene_cabinets)):
         pos = calculate_position(i)
         abs_origins.append(pos)
-    
+
+    # Alignement en profondeur : par défaut tous les caissons ont leur FACE sur
+    # le même plan (y = 0). Un caisson réglé `align_y == 'back'` a son DOS sur le
+    # plan du fond du caisson le plus profond ; un caisson posé dessus le suit.
+    if any(cab.get('align_y') == 'back' for cab in scene_cabinets):
+        deepest = max(float(c['dims']['W_raw']) for c in scene_cabinets) * unit_factor
+
+        def aligned_back(index, seen=()):
+            cab = scene_cabinets[index]
+            parent = cab.get('parent_index')
+            if (cab.get('attachment_dir') == 'up' and parent is not None
+                    and 0 <= parent < len(scene_cabinets) and index not in seen):
+                return aligned_back(parent, seen + (index,))
+            return cab.get('align_y') == 'back'
+
+        abs_origins = [
+            (o[0], deepest - float(scene_cabinets[i]['dims']['W_raw']) * unit_factor, o[2])
+            if aligned_back(i) else o
+            for i, o in enumerate(abs_origins)
+        ]
+
     return abs_origins
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -246,6 +266,14 @@ def get_cache_pied_drop(has_feet, foot_height):
     return cache_pied_drop_mm(foot_height)
 
 
+def door_top_extension(door_props):
+    """Dépassement (mm) du vantail au-dessus du caisson, saisi par l'utilisateur."""
+    try:
+        return max(0.0, float((door_props or {}).get('top_extension', 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def get_door_vertical_geometry(door_height_raw, door_props, has_feet=False,
                                foot_height=0.0):
     """Hauteur d'un vantail et position de son bas, en mm.
@@ -263,10 +291,11 @@ def get_door_vertical_geometry(door_height_raw, door_props, has_feet=False,
     """
     height = float(door_height_raw or 0.0)
     gap = float(door_props.get('door_gap', 2.0) or 0.0)
+    ext = door_top_extension(door_props)
     if door_props.get('door_model') == 'floor_length':
         drop = get_cache_pied_drop(has_feet, foot_height)
-        return height + drop - gap, -drop
-    return height - 2.0 * gap, gap
+        return height + drop - gap + ext, -drop
+    return height - 2.0 * gap + ext, gap
 
 
 def get_stacked_child_index(scene_cabinets, cab_index):
@@ -2177,7 +2206,8 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
     for c in chosen:
         last = runs[-1][-1] if runs else None
         if (fuse and last is not None and abs(c['x0'] - last['x1']) <= 1.0
-                and abs(c['top'] - last['top']) <= 1.0 and abs(c['oy'] - last['oy']) <= 1.0):
+                and abs(c['top'] - last['top']) <= 1.0
+                and (abs(c['oy'] - last['oy']) <= 1.0 or abs(c['y_rear'] - last['y_rear']) <= 1.0)):
             runs[-1].append(c)
         else:
             runs.append([c])

@@ -26,7 +26,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import to_rgba
 from PIL import Image, ImageDraw
 from machining_logic import (calculate_all_zones_2d, get_cabinet_door_height_raw,
-                             get_hinge_y_positions, is_hinge_post, shelf_front_setback,
+                             get_hinge_y_positions, door_top_extension, is_hinge_post, shelf_front_setback,
                              HINGE_POST_DEPTH_MM,
                              cabinet_door_is_hidden, get_door_vertical_geometry,
                              get_cache_pied_drop, door_zone_span, door_cover_span,
@@ -689,7 +689,7 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
             bool(cab.get("has_feet", False)), cab.get("foot_height", 0.0)
         ) + 10.0
     # Porte commune à deux caissons : elle dépasse en haut du caisson rendu.
-    z_top_ext = max(0.0, get_cabinet_door_height_raw(cab) - H) if dp.get("has_door") else 0.0
+    z_top_ext = (max(0.0, get_cabinet_door_height_raw(cab) - H) + door_top_extension(dp)) if dp.get("has_door") else 0.0
     xl0, xl1 = ox - m*0.2,  ox + L + m*2.0
     yl0, yl1 = oy - m*0.35, oy + W + m*0.2   # marge avant (portes/tiroirs)
     zl0, zl1 = oz - max(m*0.1, z_floor_ext),  oz + H + z_top_ext + m*0.7
@@ -1051,7 +1051,7 @@ def _hinge_count_per_leaf(cab: Dict) -> int:
         get_cabinet_door_height_raw(cab), dp,
         bool(cab.get("has_feet", False)), cab.get("foot_height", 0.0),
     )
-    return len(get_hinge_y_positions(leaf_h))
+    return len(get_hinge_y_positions(leaf_h - door_top_extension(dp)))
 
 
 def _description_lines(cab: Dict, label: str) -> List[str]:

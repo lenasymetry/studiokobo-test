@@ -6,7 +6,7 @@ from machining_logic import calculate_hole_positions
 from machining_logic import drawer_slide_hole_xs, legrabox_nominal_length
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, door_top_extension, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from project_definitions import get_legrabox_specs, cabinet_feet_active
 
 try:
@@ -869,7 +869,10 @@ def _door_hinge_positions(door_cab, door_height, door_z_bottom):
     jonction est descendue à 150 mm sous la jonction.
     """
     dp = door_cab.get('door_props', {}) or {}
-    H = float(door_height)
+    H_full = float(door_height)
+    # Le dépassement en haut n'a pas de montant derrière : les charnières sont
+    # réparties sur la seule partie qui couvre le caisson.
+    H = H_full - door_top_extension(dp)
     y_h = _compute_door_hinge_y_positions(H, dp)
     is_floor = dp.get('door_model') == 'floor_length'
     drop = max(0.0, -float(door_z_bottom)) if is_floor else 0.0
@@ -898,7 +901,7 @@ def _door_hinge_positions(door_cab, door_height, door_z_bottom):
     left = _avoid(phys)
     right = _avoid(phys)
     is_double = dp.get('door_type', 'single') == 'double'
-    sheet_right = sorted(H - y for y in right) if (is_double and is_floor) else list(right)
+    sheet_right = sorted(H_full - y for y in right) if (is_double and is_floor) else list(right)
     return {'left': left, 'right': right, 'sheet_left': list(left), 'sheet_right': sheet_right}
 
 
