@@ -122,6 +122,7 @@ from machining_logic import (
     cabinet_rails,
     scene_floor_width_mm,
     foot_positions_mm,
+    _joue_present,
     scene_has_mixed_feet,
     get_worktops,
     worktop_eligible_indices,
@@ -2204,6 +2205,29 @@ with col1:
                 help="Les caissons choisis ont leur dos sur le même plan (celui du caisson le plus profond). "
                      "Les autres restent alignés sur leur face. Un caisson posé dessus suit celui du dessous.",
             )
+        # Joue entre deux caissons accolés : panneau dans le joint, le caisson de
+        # droite est écarté de son épaisseur.
+        _jn_scene = st.session_state['scene_cabinets']
+        _junctions = []
+        for _j, _c in enumerate(_jn_scene):
+            _p = _c.get('parent_index')
+            if _p is not None and 0 <= _p < len(_jn_scene) and _c.get('attachment_dir') in ('left', 'right'):
+                _junctions.append((_p, _j) if _c['attachment_dir'] == 'right' else (_j, _p))
+        if _junctions:
+            st.markdown("##### Joue entre deux caissons")
+            def _toggle_junction_joue(_l, _r):
+                _sc = st.session_state['scene_cabinets']
+                _on = bool(st.session_state.get(f"junction_joue_{_l}_{_r}", False))
+                _sc[_l].setdefault('joues', {}).setdefault('droite', get_default_joue_props())['enabled'] = _on
+                if not _on:
+                    _sc[_r].setdefault('joues', {}).setdefault('gauche', get_default_joue_props())['enabled'] = False
+            for _l, _r in _junctions:
+                _jk = f"junction_joue_{_l}_{_r}"
+                st.session_state[_jk] = bool(_joue_present(_jn_scene, _l, 'droite') or _joue_present(_jn_scene, _r, 'gauche'))
+                st.toggle(f"Joue entre C{_l} et C{_r}", key=_jk, on_change=_toggle_junction_joue, args=(_l, _r),
+                          help="Un panneau est posé dans le joint ; le caisson de droite (et ceux qui le suivent) "
+                               "est décalé de l'épaisseur de la joue.")
+
         st.markdown("---")
         st.markdown('<div class="kb-step">Etape 1D - Options globales</div>', unsafe_allow_html=True)
         st.markdown('<p class="kb-note">Activez les pieds uniquement si votre meuble est posé au sol. Par défaut tous les caissons au sol en reçoivent ; pour en retirer sous certains, décochez « Poser des pieds » dans Etape 2 &gt; Dimensions du caisson.</p>', unsafe_allow_html=True)

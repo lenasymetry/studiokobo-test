@@ -2,6 +2,50 @@ import math
 
 from project_definitions import CACHE_PIED_FLOOR_CLEARANCE, cache_pied_drop_mm, cabinet_feet_active
 
+# Écart maximal (mm) toléré entre deux caissons « accolés » : une joue posée entre
+# eux (19 mm) les écarte de son épaisseur, sans les désolidariser du meuble.
+JOUE_GAP_TOLERANCE = 25.0
+
+
+def _joue_present(scene_cabinets, idx, key, depth=0):
+    """Une joue (ou la joue commune du caisson du dessous) habille-t-elle ce côté ?"""
+    cab = scene_cabinets[idx]
+    if ((cab.get('joues', {}) or {}).get(key, {}) or {}).get('enabled'):
+        return True
+    parent = cab.get('parent_index')
+    if (depth < 20 and cab.get('attachment_dir') == 'up' and parent is not None
+            and 0 <= parent < len(scene_cabinets)):
+        pj = (scene_cabinets[parent].get('joues', {}) or {}).get(key, {}) or {}
+        if pj.get('span_up'):
+            return _joue_present(scene_cabinets, parent, key, depth + 1)
+    return False
+
+
+def junction_joue_gap(scene_cabinets, parent_idx, child_idx, direction):
+    """Épaisseur (mm) de la joue posée ENTRE deux caissons accolés, 0 sans joue.
+
+    Une joue droite du caisson de gauche ou une joue gauche du caisson de droite
+    se trouve dans le joint : le caisson de droite est écarté de son épaisseur.
+    Si les deux sont activées, il n'y a qu'un seul panneau (celui de gauche).
+    """
+    if direction == 'right':
+        left, right = parent_idx, child_idx
+    elif direction == 'left':
+        left, right = child_idx, parent_idx
+    else:
+        return 0.0
+    left_on = _joue_present(scene_cabinets, left, 'droite')
+    right_on = _joue_present(scene_cabinets, right, 'gauche')
+    if not (left_on or right_on):
+        return 0.0
+    t = 0.0
+    if left_on:
+        t = max(t, float(scene_cabinets[left]['dims'].get('t_lr_raw', 19.0) or 0.0))
+    if right_on:
+        t = max(t, float(scene_cabinets[right]['dims'].get('t_lr_raw', 19.0) or 0.0))
+    return t
+
+
 def calculate_origins_recursively(scene_cabinets, unit_factor):
     """
     Calcule les origines absolues de chaque caisson dans la scène.
@@ -64,12 +108,13 @@ def calculate_origins_recursively(scene_cabinets, unit_factor):
         parent_H = parent_cab['dims']['H_raw'] * unit_factor
         cab_L = cab['dims']['L_raw'] * unit_factor
         
+        gap = junction_joue_gap(scene_cabinets, parent_index, cab_index, attachment_dir) * unit_factor
         if attachment_dir == 'left':
             # À gauche : X négatif
-            pos = (parent_pos[0] - cab_L, parent_pos[1], parent_pos[2])
+            pos = (parent_pos[0] - cab_L - gap, parent_pos[1], parent_pos[2])
         elif attachment_dir == 'right':
             # À droite : X positif
-            pos = (parent_pos[0] + parent_L, parent_pos[1], parent_pos[2])
+            pos = (parent_pos[0] + parent_L + gap, parent_pos[1], parent_pos[2])
         elif attachment_dir == 'up':
             # Au-dessus : Z positif
             pos = (parent_pos[0], parent_pos[1], parent_pos[2] + parent_H)
@@ -204,11 +249,11 @@ def get_plinthe_groups(scene_cabinets):
     for cab in on_floor:
         if groups:
             last = groups[-1]
-            joined = (abs(cab['x_start'] - last['_x_end']) <= PLINTHE_JOIN_TOLERANCE
+            joined = (-PLINTHE_JOIN_TOLERANCE <= cab['x_start'] - last['_x_end'] <= JOUE_GAP_TOLERANCE
                       and cab['material'] == last['material'])
             if joined:
                 last['indices'].append(cab['index'])
-                last['_width'] += cab['width']
+                last['_width'] += cab['width'] + max(0.0, cab['x_start'] - last['_x_end'])
                 last['_x_end'] = cab['x_end']
                 last['_t_lr_right'] = cab['t_lr']
                 continue
@@ -1719,6 +1764,18 @@ def apply_joue_spans(scene_cabinets):
                 'on_floor': cabinet_rests_on_floor(scene_cabinets, i),
             }
         cab['joue_spans'] = spans
+    # Joue entre deux caissons accolés : un seul panneau, celui du caisson de
+    # gauche ; la joue gauche du caisson de droite est masquée.
+    for j, cab in enumerate(scene_cabinets):
+        parent = cab.get('parent_index')
+        if parent is None or not (0 <= parent < len(scene_cabinets)):
+            continue
+        direction = cab.get('attachment_dir')
+        if direction not in ('left', 'right'):
+            continue
+        left, right = (parent, j) if direction == 'right' else (j, parent)
+        if _joue_present(scene_cabinets, left, 'droite'):
+            scene_cabinets[right].setdefault('joue_spans', {}).setdefault('gauche', {})['covered'] = True
     _apply_top_joue_spans(scene_cabinets)
     return scene_cabinets
 
@@ -2102,7 +2159,7 @@ def foot_positions_mm(scene_cabinets, extra_feet=False, extra_rows=0, foot_heigh
     runs = []
     for i in bearing:
         left = origins[i][0]
-        if runs and abs(left - runs[-1]['x1']) <= 1.0:
+        if runs and -1.0 <= left - runs[-1]['x1'] <= JOUE_GAP_TOLERANCE:
             runs[-1]['members'].append(i)
             runs[-1]['x1'] = left + float(scene_cabinets[i]['dims']['L_raw'])
         else:
@@ -2205,7 +2262,7 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
     runs = []
     for c in chosen:
         last = runs[-1][-1] if runs else None
-        if (fuse and last is not None and abs(c['x0'] - last['x1']) <= 1.0
+        if (fuse and last is not None and -1.0 <= c['x0'] - last['x1'] <= JOUE_GAP_TOLERANCE
                 and abs(c['top'] - last['top']) <= 1.0
                 and (abs(c['oy'] - last['oy']) <= 1.0 or abs(c['y_rear'] - last['y_rear']) <= 1.0)):
             runs[-1].append(c)
