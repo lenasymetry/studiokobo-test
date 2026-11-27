@@ -576,7 +576,8 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
         # ── Joues (habillages latéraux / dessus / dessous) ─────────────
         _fil_j = float((cabinet.get("door_props", {}) or {}).get("fileur_width", 0) or 0.0)
         for _jk, _jlabel in (("gauche", "Joue gauche"), ("droite", "Joue droite"),
-                             ("dessus", "Joue dessus"), ("dessous", "Joue dessous")):
+                             ("dessus", "Joue dessus"), ("dessous", "Joue dessous"),
+                             ("arriere", "Joue arrière")):
             _joue = (cabinet.get("joues", {}) or {}).get(_jk, {}) or {}
             if not _joue.get("enabled"):
                 continue
@@ -590,6 +591,8 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
                 add_panel(cab_node, f"{_jlabel} – {cab_label}", ox - _jt, _jy, oz + _g["z_offset"], _jt, _jw, _jl)
             elif _jk == "droite":
                 add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + L, _jy, oz + _g["z_offset"], _jt, _jw, _jl)
+            elif _jk == "arriere":
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], oy + W, oz, _jl, _jt, _jw)
             elif _jk == "dessus":
                 add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], _jy, oz + H, _jl, _jw, _jt)
             else:

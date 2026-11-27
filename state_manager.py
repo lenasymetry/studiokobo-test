@@ -674,6 +674,7 @@ def _build_cabinet_from_web_config(payload: dict):
             'droite': get_default_joue_props(),
             'dessus': get_default_joue_props(),
             'dessous': get_default_joue_props(),
+                'arriere': get_default_joue_props(),
         },
         'web_import_payload': payload,
     }
@@ -1907,6 +1908,7 @@ def add_cabinet(origin_type='central'):
                 'droite': get_default_joue_props(),
                 'dessus': get_default_joue_props(),
                 'dessous': get_default_joue_props(),
+                'arriere': get_default_joue_props(),
             }
         }
         st.session_state['scene_cabinets'].append(new_cabinet)
@@ -1929,6 +1931,7 @@ def add_cabinet(origin_type='central'):
                 'droite': get_default_joue_props(),
                 'dessus': get_default_joue_props(),
                 'dessous': get_default_joue_props(),
+                'arriere': get_default_joue_props(),
             }
         }
         if origin_type == 'right': new_name = f"D de {base_index}"

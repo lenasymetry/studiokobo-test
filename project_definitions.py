@@ -69,7 +69,7 @@ def get_default_vertical_shelf_props():
         'material': 'Matière Corps'
     }
 
-JOUE_KEYS = ('gauche', 'droite', 'dessus', 'dessous')
+JOUE_KEYS = ('gauche', 'droite', 'dessus', 'dessous', 'arriere')
 
 # Pièce du corps que chaque joue vient habiller. C'est elle qui donne ses
 # dimensions à la joue : aucune cote n'est saisie à la main.
@@ -78,6 +78,7 @@ JOUE_COVERED_PART = {
     'droite': 'Montant Droit',
     'dessus': 'Traverse Haut',
     'dessous': 'Traverse Bas',
+    'arriere': 'Fond (dos du meuble)',
 }
 
 # Jeu laissé entre le sol et le bas d'un panneau qui descend devant les pieds
@@ -153,6 +154,11 @@ def get_joue_dimensions(joue_key, dims, has_feet=False, foot_height=0.0,
     H = float(dims.get('H_raw', 0.0) or 0.0)
     t_lr = float(dims.get('t_lr_raw', 19.0) or 0.0)
     t_tb = float(dims.get('t_tb_raw', 19.0) or 0.0)
+
+    if joue_key == 'arriere':
+        # Joue arrière : plaquée au dos du caisson, sur sa largeur et sa hauteur
+        # (« width » est ici sa dimension verticale).
+        return {'length': L_eff, 'width': H, 'thickness': t_lr, 'x_offset': 0.0, 'z_offset': 0.0}
 
     if joue_key in ('gauche', 'droite'):
         base_length, thickness, x_offset = H, t_lr, 0.0

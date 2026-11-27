@@ -962,7 +962,7 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
     joues = cab.get("joues", {}) or {}
     cab_has_feet = bool(cab.get("has_feet", False))
     cab_foot_height = cab.get("foot_height", 0.0)
-    for key, side in (("gauche", "left"), ("droite", "right"), ("dessus", "top"), ("dessous", "bottom")):
+    for key, side in (("gauche", "left"), ("droite", "right"), ("dessus", "top"), ("dessous", "bottom"), ("arriere", "back")):
         joue = joues.get(key, {}) or {}
         if not bool(joue.get("enabled", False)):
             continue
@@ -980,6 +980,8 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
             _add_box(boxes, rox + render_L, jy0, roz + jz_offset, jt, jw, jl, alpha=0.75, skip=bf_skip)
         elif side == "top":
             _add_box(boxes, rox + jx_offset, jy0, roz + H, jl, jw, jt, alpha=0.75, skip=bf_skip)
+        elif side == "back":
+            _add_box(boxes, rox + jx_offset, roy + W, roz, jl, jt, jw, alpha=0.75, skip=bf_skip)
         elif side == "bottom":
             _add_box(boxes, rox + jx_offset, jy0, roz - jt, jl, jw, jt, alpha=0.75, skip=bf_skip)
 

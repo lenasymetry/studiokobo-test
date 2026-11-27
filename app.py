@@ -1239,11 +1239,14 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             'Chant Droit': True,
         }
         joue_chants = {k: dict(_joue_edge_chants) for k in ('droite', 'gauche', 'dessous', 'dessus')}
+        # Joue arrière : ses quatre chants.
+        joue_chants['arriere'] = {k: True for k in _joue_edge_chants}
         for joue_key, joue_label in [
             ('gauche', 'Joue gauche'),
             ('droite', 'Joue droite'),
             ('dessus', 'Joue dessus'),
             ('dessous', 'Joue dessous'),
+            ('arriere', 'Joue arrière'),
         ]:
             joue = joues.get(joue_key, get_default_joue_props())
             if not bool(joue.get('enabled', False)):
@@ -3386,6 +3389,7 @@ with col1:
                         ('droite', 'Joue droite'),
                         ('dessus', 'Joue dessus'),
                         ('dessous', 'Joue dessous'),
+                        ('arriere', 'Joue arrière'),
                     ]:
                         joue = joues.setdefault(joue_key, get_default_joue_props())
                         st.markdown(f"##### {joue_label}")
@@ -3503,7 +3507,7 @@ with col1:
                                 value=bool(joue.get('led_strip', False)),
                                 key=f"joue_led_strip_{joue_key}_{idx}",
                             )
-                        if enabled and bool(_jspan.get('front_door', cabinet_has_front_door(selected_cab))):
+                        if enabled and joue_key != 'arriere' and bool(_jspan.get('front_door', cabinet_has_front_door(selected_cab))):
                             joue['front_advance'] = st.checkbox(
                                 "Mettre la joue au niveau de la façade (avance de 20 mm devant la porte) ; "
                                 "décochée : profondeur exacte du caisson",
@@ -3523,7 +3527,7 @@ with col1:
                                 key=f"joue_fixing_{joue_key}_{idx}",
                                 help="Décochée : aucun trou de tourillon, ni dans la joue ni dans le montant.",
                             )
-                        if enabled:
+                        if enabled and joue_key != 'arriere':
                             # Largeur (profondeur) choisie, au lieu de la profondeur automatique.
                             joue['custom_width_on'] = st.checkbox(
                                 "Choisir la largeur (profondeur) de la joue",
@@ -4321,7 +4325,8 @@ with col1:
                     joue_row_keys = {}
                     _joue_rows = []
                     for _jk, _jl in (('gauche', 'Joue gauche'), ('droite', 'Joue droite'),
-                                     ('dessus', 'Joue dessus'), ('dessous', 'Joue dessous')):
+                                     ('dessus', 'Joue dessus'), ('dessous', 'Joue dessous'),
+                                     ('arriere', 'Joue arrière')):
                         _jp = (selected_cab.get('joues', {}) or {}).get(_jk, {}) or {}
                         if not _jp.get('enabled'):
                             continue
@@ -4331,7 +4336,8 @@ with col1:
                         )
                         if _jg is None:
                             continue  # habillée par la joue commune d'un autre caisson
-                        _jc = {'Chant Avant': True, 'Chant Arrière': False, 'Chant Gauche': True, 'Chant Droit': True}
+                        _jc = {'Chant Avant': True, 'Chant Arrière': _jk == 'arriere',
+                               'Chant Gauche': True, 'Chant Droit': True}
                         _jc.update({k: bool(v) for k, v in (_jp.get('chants') or {}).items() if k in _jc})
                         _jref = f"{_jl} (C{idx})"
                         joue_row_keys[_jref] = _jk
@@ -5167,6 +5173,7 @@ with col2:
                     ('droite', 'right'),
                     ('dessus', 'top'),
                     ('dessous', 'bottom'),
+                    ('arriere', 'back'),
                 ]
 
                 cab_render_has_feet = cabinet_feet_active(cab_render, st.session_state.get('has_feet', False))
@@ -5223,6 +5230,15 @@ with col2:
                             color=joue_color,
                             opacity=joue_opacity,
                             name=f"Joue dessus {i}",
+                            showlegend=False,
+                        ))
+                    elif joue_side == 'back':
+                        fig3d.add_trace(cuboid_mesh_for(
+                            joue_l, joue_t, joue_w,
+                            (o[0] + joue_x_offset, o[1] + W, o[2]),
+                            color=joue_color,
+                            opacity=joue_opacity,
+                            name=f"Joue arrière {i}",
                             showlegend=False,
                         ))
                     elif joue_side == 'bottom':

@@ -2291,6 +2291,9 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
             fileur_width = 0.0
             front_door = bool(span.get('front_door', front_door))
     geo = get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)
+    if joue_key == 'arriere':
+        geo['front_offset'] = 0.0   # derrière le meuble : ni avance ni largeur choisie
+        return geo
     if joue_key in JOUE_SIDE_KEYS:
         _apply_joue_custom_height(geo, joue)
     # Meuble à porte : la joue avance de 20 mm pour couvrir la porte.
@@ -2356,7 +2359,7 @@ def set_part_chants(scene_cabinets, part, chants):
     values = {k: bool(chants.get(k, False)) for k in CHANT_KEYS}
     if name.startswith('Joue '):
         # Même réglage que l'onglet Joues du caisson.
-        key = name.split()[1]
+        key = name.split()[1].replace('è', 'e')
         joue = (cab.get('joues') or {}).get(key)
         if joue is not None:
             joue['chants'] = values
@@ -2746,6 +2749,14 @@ def view_offset_y(cabinet):
         return 0.0
 
 
+def back_joue_thickness(cabinet):
+    """Épaisseur (mm) de la joue arrière du caisson, 0 s'il n'en a pas : le plan
+    de travail la recouvre."""
+    if not (((cabinet.get('joues') or {}).get('arriere') or {}).get('enabled')):
+        return 0.0
+    return float((cabinet.get('dims') or {}).get('t_lr_raw', 19.0) or 0.0)
+
+
 def worktop_eligible_indices(scene_cabinets):
     """Caissons qui peuvent recevoir un plan de travail : rien n'est posé dessus."""
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
@@ -2781,7 +2792,7 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
                 # Façade à sa place réelle ; l'arrière reste au moins à sa place
                 # d'origine (le mur) : un caisson avancé élargit donc le plan.
                 'y_face': oy - moved - cabinet_front_offset_mm(scene_cabinets, i),
-                'y_back': oy + float(dims['W_raw']) + max(0.0, -moved),
+                'y_back': oy + float(dims['W_raw']) + max(0.0, -moved) + back_joue_thickness(cab),
                 # Positions d'origine, pour décider quels caissons partagent un plan.
                 'y_rear': oy + float(dims['W_raw']), 'oy': oy,
                 'top': oz + float(dims['H_raw']) + float(lifts[i] or 0.0),
