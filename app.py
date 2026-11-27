@@ -2314,6 +2314,22 @@ with col1:
             st.toggle(f"Plan en débord de {WORKTOP_OVERHANG_MM:.0f} mm devant", key='worktop_overhang',
                       help="Dépasse de 1 cm la façade (porte) ; sans porte ni tiroir en applique, "
                            "de 1 cm le caisson.")
+            # Une matière par plan, enregistrée sur les caissons qu'il couvre.
+            _wt_list = get_worktops(
+                _wt_scene, bool(st.session_state.get('worktop_fuse', True)), False,
+                _worktop_lifts(_wt_scene, bool(st.session_state.get('has_feet', False)),
+                               st.session_state.get('foot_height', 0.0)))
+            for _wt in _wt_list:
+                _members = tuple(_wt['indices'])
+                _mat_key = "worktop_material_" + "_".join(str(k) for k in _members)
+                def _set_wt_material(_key=_mat_key, _idx=_members):
+                    _value = str(st.session_state.get(_key, "") or "").strip()
+                    for _k in _idx:
+                        st.session_state['scene_cabinets'][_k]['worktop_material'] = _value
+                st.session_state[_mat_key] = _wt['material']
+                st.text_input("Matière du plan " + "+".join(f"C{k}" for k in _members),
+                              key=_mat_key, on_change=_set_wt_material,
+                              help="Laissée vide : la matière du corps du premier caisson couvert.")
 
         # Fixation des caissons superposés : proposée seulement quand la scène
         # comporte réellement un caisson posé sur un autre.

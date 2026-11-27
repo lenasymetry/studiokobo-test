@@ -2481,7 +2481,11 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
             'z_top': run[0]['top'],
             'length': x1 - x0, 'width': (y_rear - y_face) + extra,
             'thickness': WORKTOP_THICKNESS_MM,
-            'material': str(scene_cabinets[run[0]['i']].get('material_body', 'Matière Corps')),
+            # Matière choisie pour ce plan, sinon celle du corps du premier caisson.
+            'material': next(
+                (str(scene_cabinets[c['i']]['worktop_material']).strip() for c in run
+                 if str(scene_cabinets[c['i']].get('worktop_material') or '').strip()),
+                str(scene_cabinets[run[0]['i']].get('material_body', 'Matière Corps'))),
             'overhang': extra,
         })
     return out
