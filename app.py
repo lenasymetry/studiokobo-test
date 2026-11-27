@@ -2356,8 +2356,20 @@ with col1:
                     def _set_view_offset(_i=idx):
                         st.session_state['scene_cabinets'][_i]['view_offset_y'] = float(
                             st.session_state.get(f"view_offset_y_{_i}", 0.0) or 0.0)
-                    st.number_input("Avancer (+) ou reculer (−) ce caisson (mm)",
-                                    value=float(view_offset_y(selected_cab)), step=10.0, format="%.1f",
+                    def _move_cabinet(delta, _i=idx):
+                        _c = st.session_state['scene_cabinets'][_i]
+                        _c['view_offset_y'] = 0.0 if delta is None else view_offset_y(_c) + delta
+                    _mv_back, _mv_front, _mv_reset = st.columns(3)
+                    _mv_back.button("⬆️ Reculer 10 mm", key=f"move_back_{idx}", on_click=_move_cabinet,
+                                    args=(-10.0,), use_container_width=True)
+                    _mv_front.button("⬇️ Avancer 10 mm", key=f"move_front_{idx}", on_click=_move_cabinet,
+                                     args=(10.0,), use_container_width=True)
+                    _mv_reset.button("↩️ Remettre à 0", key=f"move_reset_{idx}", on_click=_move_cabinet,
+                                     args=(None,), use_container_width=True)
+                    # Le champ suit la valeur du caisson (modifiée aussi par les boutons).
+                    st.session_state[f"view_offset_y_{idx}"] = float(view_offset_y(selected_cab))
+                    st.number_input("Décalage exact (mm) : + vers l'avant, − vers l'arrière",
+                                    step=1.0, format="%.1f",
                                     key=f"view_offset_y_{idx}", on_change=_set_view_offset,
                                     help="Déplace le caisson dans la vue 3D sans toucher à ses pièces ni à ses perçages. "
                                          "Un plan de travail posé dessus s'adapte (profondeur dans la 3D et le débit).")
