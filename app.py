@@ -110,6 +110,8 @@ from machining_logic import (
     format_plinthe_labels,
     carcass_piece_dims,
     drawer_piece_dims,
+    drawer_back_gap,
+    drawer_standard_slide_xs,
     applique_drawer_conflicts,
     legrabox_inner_depth,
     legrabox_nl_options,
@@ -965,7 +967,7 @@ def _legrabox_nl_widgets(cabinet, drp, nl_key, load_key, on_change_nl=None, on_c
     """Menus longueur nominale (NL) et charge d'un tiroir LÉGRABOX.
     Retourne (legrabox_nl, legrabox_load) choisis ; legrabox_nl None = auto."""
     options = legrabox_nl_options(cabinet, drp)
-    depth = legrabox_inner_depth(cabinet)
+    depth = legrabox_inner_depth(cabinet) - drawer_back_gap(drp)
     if not options:
         tech = drp.get('drawer_tech_type', 'K')
         st.warning(
@@ -2867,6 +2869,13 @@ with col1:
                             step=1.0,
                             min_value=5.0,
                         )
+                        p['back_gap'] = st.number_input(
+                            "Distance entre le tiroir et le fond (mm)",
+                            min_value=0.0, value=float(p.get('back_gap', 0.0) or 0.0),
+                            key=f"pending_drawer_back_gap_{idx}", format="%.1f", step=10.0,
+                            help="0 : tiroir sur toute la profondeur. Sinon le tiroir, sa coulisse et ses "
+                                 "perçages sont calculés pour laisser cet espace libre derrière lui.",
+                        )
                         p['drawer_gap'] = st.number_input(
                             "Jeu extérieur (mm)",
                             value=float(p.get('drawer_gap', 2.0)),
@@ -3109,6 +3118,19 @@ with col1:
                                     format="%.0f",
                                     step=1.0,
                                 )
+                                st.number_input(
+                                    "Distance entre le tiroir et le fond (mm)",
+                                    min_value=0.0, value=float(d.get('back_gap', 0.0) or 0.0),
+                                    key=f"drawer_back_gap_{idx}_{i}",
+                                    on_change=lambda x=i: update_drawer_prop(x, 'back_gap'),
+                                    format="%.1f", step=10.0,
+                                    help="0 : tiroir sur toute la profondeur. Sinon le tiroir, sa coulisse et ses "
+                                         "perçages sont calculés pour laisser cet espace libre derrière lui.",
+                                )
+                                if (d.get('drawer_system') != 'LÉGRABOX'
+                                        and not drawer_standard_slide_xs(selected_cab, d)):
+                                    st.warning("Profondeur restante trop faible ou hors des tableaux de coulisses : "
+                                               "aucun trou de coulisse ne sera percé.")
                                 st.number_input(
                                     "Jeu extérieur (mm)",
                                     value=d.get('drawer_gap', 2.0),
@@ -4723,7 +4745,8 @@ with col2:
                             drawer_y_pos = o[1] - drawer_depth
                         else:
                             interior_depth = W - 2 * tb
-                            drawer_depth = interior_depth - (19.0 * unit_factor)
+                            drawer_depth = max(19.0 * unit_factor,
+                                interior_depth - (19.0 + drawer_back_gap(drp)) * unit_factor)
                             drawer_y_pos = o[1] + tb
 
                         drawer_color = "#666666" if is_preview else (
@@ -4788,7 +4811,8 @@ with col2:
                             dW_zone = zone_width_abs - 2 * gap
                             drawer_x_start = zone_x_min_abs + gap
                             # Mode ENCASTE : profondeur interieure du caisson avec retrait avant.
-                            drawer_depth = interior_depth - (19.0 * unit_factor)
+                            drawer_depth = max(19.0 * unit_factor,
+                                interior_depth - (19.0 + drawer_back_gap(drp)) * unit_factor)
                             drawer_y_pos = o[1] + tb
                         
                         # Position Z (hauteur) : drawer_bottom_offset incluit déjà t_tb depuis le fond du caisson
@@ -4845,7 +4869,8 @@ with col2:
                             # Profondeur intérieure du caisson
                             interior_depth = W - 2 * tb
                             # Tiroir : profondeur intérieure - 19mm retrait
-                            drawer_depth = interior_depth - (19.0 * unit_factor)
+                            drawer_depth = max(19.0 * unit_factor,
+                                interior_depth - (19.0 + drawer_back_gap(drp)) * unit_factor)
                             # Position : commencer après la traverse avant
                             drawer_y_pos = o[1] + tb
                         

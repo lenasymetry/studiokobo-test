@@ -1339,6 +1339,52 @@ LEGRABOX_FACE_HOLE_RAISE_MM = 19.0
 LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM = 57.0
 
 
+def drawer_back_gap(drp):
+    """Distance libre (mm) demandée entre l'arrière du tiroir et le fond : le tiroir
+    se calcule comme dans un caisson moins profond d'autant. 0 par défaut."""
+    try:
+        return max(0.0, float((drp or {}).get('back_gap', 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def standard_slide_hole_xs(depth, tech_type):
+    """Trous de coulisse (hors fiche LÉGRABOX) selon la profondeur du caisson, en mm
+    depuis l'avant ; liste vide hors des plages prévues."""
+    wr = float(depth)
+    if wr > 643:
+        return [19, 37, 133, 261, 293, 389, 421, 549]
+    if tech_type == 'N':
+        if 403 < wr < 452: return [19, 37, 133, 165, 229, 325]
+        if 453 < wr < 502: return [19, 37, 133, 165, 261, 357]
+        if 503 < wr < 552: return [19, 37, 133, 261, 293, 453]
+        if 553 < wr < 602: return [19, 37, 133, 261, 293, 453]
+    if 273 < wr < 302: return [19, 37, 133, 261]
+    if 303 < wr < 352: return [19, 37, 133, 165, 261]
+    if 353 < wr < 402: return [19, 37, 133, 165, 325]
+    if 403 < wr < 452: return [19, 37, 133, 165, 229, 325]
+    if 453 < wr < 502: return [19, 37, 133, 165, 261, 357]
+    if 503 < wr < 552: return [19, 37, 133, 261, 293, 453]
+    if 553 < wr < 602: return [19, 37, 133, 261, 293, 453]
+    if 603 < wr < 652: return [19, 37, 133, 261, 293, 325, 357, 517]
+    return []
+
+
+def drawer_standard_slide_xs(cabinet, drp):
+    """Trous de coulisse d'un tiroir hors fiche LÉGRABOX. Avec une distance au fond,
+    la profondeur utile est réduite d'autant ; entre deux plages, on prend la plage
+    inférieure (la coulisse la plus longue qui rentre)."""
+    W = float((cabinet.get('dims', {}) or {}).get('W_raw', 0.0) or 0.0)
+    gap = drawer_back_gap(drp)
+    tech = drp.get('drawer_tech_type', 'K')
+    depth = W - gap
+    xs = standard_slide_hole_xs(depth, tech)
+    while gap > 0.0 and not xs and depth > 273.0:
+        depth -= 1.0
+        xs = standard_slide_hole_xs(depth, tech)
+    return xs
+
+
 def legrabox_inner_depth(cabinet):
     """Profondeur intérieure du corps (devant le fond encastré), en mm."""
     W_raw = float((cabinet.get('dims', {}) or {}).get('W_raw', 0.0))
@@ -1347,7 +1393,7 @@ def legrabox_inner_depth(cabinet):
 
 def legrabox_nl_options(cabinet, drp):
     """Longueurs nominales qui rentrent dans le caisson pour ce tiroir (croissant)."""
-    depth = legrabox_inner_depth(cabinet)
+    depth = legrabox_inner_depth(cabinet) - drawer_back_gap(drp)
     nl_min = LEGRABOX_NL_MIN_BY_TECH.get(drp.get('drawer_tech_type', 'K'), 0)
     return [nl for nl in LEGRABOX_NOMINAL_LENGTHS
             if nl >= nl_min and nl + LEGRABOX_NL_DEPTH_MARGIN_MM <= depth]
@@ -1531,19 +1577,19 @@ def drawer_piece_dims(cabinet, drp, zones):
         # Fond = NL - 10 (dos bois). Caisson trop court pour toute NL :
         # ancien calcul sur la profondeur.
         nl = legrabox_nominal_length(cabinet, drp)
-        bottom_d = (nl - 10.0) if nl is not None else max(0.0, W_raw - 2.0 * t_lr - 10.0)
+        bottom_d = (nl - 10.0) if nl is not None else max(0.0, W_raw - 2.0 * t_lr - 10.0 - drawer_back_gap(drp))
     elif system == 'ANGLAISE':
         box_face = max(0.0, zone_total - 4.0)
         back_w = max(0.0, box_face - 40.0)
         back_h = {'N': 69.0, 'M': 84.0, 'K': 116.0, 'D': 199.0}.get(tech, 116.0)
         bottom_w = max(0.0, box_face - 49.0)
-        bottom_d = W_raw - (20.0 + t_fb)
+        bottom_d = max(0.0, W_raw - (20.0 + t_fb) - drawer_back_gap(drp))
     else:
         box_face = zone_total - 2.0 * gap
         back_w = max(0.0, box_face - 40.0)
         back_h = {'N': 69.0, 'M': 84.0, 'K': 116.0, 'D': 199.0}.get(tech, 116.0)
         bottom_w = max(0.0, box_face - 49.0)
-        bottom_d = W_raw - (20.0 + t_fb)
+        bottom_d = max(0.0, W_raw - (20.0 + t_fb) - drawer_back_gap(drp))
 
     # Façade : largeur de son ouverture (voir drawer_face_span) ; tiroir seul
     # sur toute la largeur -> largeur utile du caisson - 4 mm.

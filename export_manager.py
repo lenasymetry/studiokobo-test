@@ -3,7 +3,7 @@ import copy
 import datetime
 from io import BytesIO, StringIO
 from machining_logic import calculate_hole_positions
-from machining_logic import drawer_slide_hole_xs, legrabox_nominal_length
+from machining_logic import drawer_slide_hole_xs, drawer_standard_slide_xs, legrabox_nominal_length
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
 from machining_logic import UPRIGHT_DEFAULT_CHANTS, stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, door_top_extension, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
@@ -1595,26 +1595,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                             zone_floor = float((drp.get('stored_zone_coords') or {}).get('y_min', t_tb))
                         y_slide = max(float(drp.get('drawer_bottom_offset', 0.0)) + LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM,
                                       zone_floor + LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM)
-                    x_slide_holes = []
-                    wr = W_raw
-                    if legrabox_xs:
-                        x_slide_holes = legrabox_xs
-                    elif wr > 643: x_slide_holes = [19, 37, 133, 261, 293, 389, 421, 549]
-                    else:
-                        if tech_type == 'N':
-                            if 403 < wr < 452: x_slide_holes = [19, 37, 133, 165, 229, 325]
-                            elif 453 < wr < 502: x_slide_holes = [19, 37, 133, 165, 261, 357]
-                            elif 503 < wr < 552: x_slide_holes = [19, 37, 133, 261, 293, 453]
-                            elif 553 < wr < 602: x_slide_holes = [19, 37, 133, 261, 293, 453]
-                        if not x_slide_holes:
-                            if 273 < wr < 302: x_slide_holes = [19, 37, 133, 261]
-                            elif 303 < wr < 352: x_slide_holes = [19, 37, 133, 165, 261]
-                            elif 353 < wr < 402: x_slide_holes = [19, 37, 133, 165, 325]
-                            elif 403 < wr < 452: x_slide_holes = [19, 37, 133, 165, 229, 325]
-                            elif 453 < wr < 502: x_slide_holes = [19, 37, 133, 165, 261, 357]
-                            elif 503 < wr < 552: x_slide_holes = [19, 37, 133, 261, 293, 453]
-                            elif 553 < wr < 602: x_slide_holes = [19, 37, 133, 261, 293, 453]
-                            elif 603 < wr < 652: x_slide_holes = [19, 37, 133, 261, 293, 325, 357, 517]
+                    # Hors fiche LÉGRABOX : selon la profondeur (moins la distance au fond).
+                    x_slide_holes = legrabox_xs or drawer_standard_slide_xs(cab, drp)
 
                     # Utiliser les LIMITES DE LA ZONE pour détecter les montants (MÊME LOGIQUE QUE 2.PY)
                     zone_x_min = None
