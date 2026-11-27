@@ -1,4 +1,5 @@
 import math
+import re
 
 from project_definitions import CACHE_PIED_FLOOR_CLEARANCE, cache_pied_drop_mm, cabinet_feet_active
 
@@ -2325,6 +2326,94 @@ def migrate_upright_wall_chants(scene_cabinets):
                 piece[edge] = False
         cab['_upright_wall_chant_v2'] = True
     return scene_cabinets
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chants modifiés dans le tableau « Feuille de Débit » (sous les livrables)
+# ─────────────────────────────────────────────────────────────────────────────
+CHANT_KEYS = ('Chant Avant', 'Chant Arrière', 'Chant Gauche', 'Chant Droit')
+# Pièces de structure : leurs chants vivent dans `debit_data` (comme l'onglet du caisson).
+DEBIT_DATA_REFS = ('Traverse Bas', 'Traverse Haut', 'Montant Gauche', 'Montant Droit')
+
+
+def chant_piece_name(ref):
+    """Nom d'une pièce sans son numéro de caisson (qui change si on en supprime un)."""
+    return re.sub(r"\s*\(C\d+(?:\s*\+\s*C\d+)*\)", "", str(ref)).strip()
+
+
+def _first_cabinet_of(part):
+    found = re.search(r"C(\d+)", str(part.get('Caisson', '')))
+    return int(found.group(1)) if found else None
+
+
+def set_part_chants(scene_cabinets, part, chants):
+    """Enregistre les chants choisis pour une ligne du tableau de débit."""
+    idx = _first_cabinet_of(part)
+    if idx is None or not 0 <= idx < len(scene_cabinets):
+        return
+    cab = scene_cabinets[idx]
+    name = chant_piece_name(part.get('Référence Pièce', ''))
+    values = {k: bool(chants.get(k, False)) for k in CHANT_KEYS}
+    if name.startswith('Joue '):
+        # Même réglage que l'onglet Joues du caisson.
+        key = name.split()[1]
+        joue = (cab.get('joues') or {}).get(key)
+        if joue is not None:
+            joue['chants'] = values
+        return
+    if name in DEBIT_DATA_REFS:
+        for piece in cab.get('debit_data', []) or []:
+            if str(piece.get('Référence Pièce', '')).split(' (')[0].strip() == name:
+                piece.update(values)
+        return
+    cab.setdefault('chant_overrides', {})[name] = {
+        'chants': values,
+        'dims': sorted([float(part.get('Longueur (mm)', 0) or 0), float(part.get('Largeur (mm)', 0) or 0)])}
+
+
+def apply_chant_overrides(parts, scene_cabinets):
+    """Applique aux lignes du débit les chants modifiés dans le tableau."""
+    for part in parts:
+        idx = _first_cabinet_of(part)
+        if idx is None or not 0 <= idx < len(scene_cabinets):
+            continue
+        found = (scene_cabinets[idx].get('chant_overrides') or {}).get(
+            chant_piece_name(part.get('Référence Pièce', '')))
+        if found:
+            part.update(found['chants'])
+            # Cotes à jour (la feuille des tiroirs groupés se retrouve par elles).
+            found['dims'] = sorted([float(part.get('Longueur (mm)', 0) or 0),
+                                    float(part.get('Largeur (mm)', 0) or 0)]) if part.get('Longueur (mm)') is not None else found['dims']
+    return parts
+
+
+def sheet_chant_override(cabinet, title, length, width, chants):
+    """Chants d'une feuille d'usinage après les modifications du tableau de débit."""
+    overrides = (cabinet or {}).get('chant_overrides') or {}
+    if not overrides:
+        return chants
+    flipped = str(title).strip().endswith('2/2')
+    name = chant_piece_name(re.sub(r"\s*-\s*[12]/2\s*$", "", str(title)))
+    if name.startswith('Panneau Arrière'):
+        name = 'Fond'
+    zone_door = re.fullmatch(r"Porte (\d+)", name)
+    if zone_door:
+        name = f"Porte Import {zone_door.group(1)}"
+    found = overrides.get(name)
+    if found is None:
+        # Feuilles de tiroirs groupés par cotes identiques.
+        for prefix, kind in (('Façade Tiroir Groupe', 'Façade Tiroir'), ('Tiroir-Dos Groupe', 'Tiroir Dos'),
+                             ('Tiroir-Fond Groupe', 'Tiroir Fond')):
+            if name.startswith(prefix):
+                dims = sorted([float(length), float(width)])
+                found = next((v for k, v in overrides.items()
+                              if k.startswith(kind) and all(abs(a - b) <= 0.6 for a, b in zip(v['dims'], dims))), None)
+    if found is None:
+        return chants
+    result = dict(chants or {}, **found['chants'])
+    if flipped:   # face 2/2 : vue retournée, gauche et droite échangés
+        result['Chant Gauche'], result['Chant Droit'] = found['chants']['Chant Droit'], found['chants']['Chant Gauche']
+    return result
 
 
 # Montants principaux gauche / droit : chants avant, gauche et droit, jamais sur la

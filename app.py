@@ -103,6 +103,8 @@ from machining_logic import (
     zone_door_entry,
     set_drawer_zone,
     drawer_zones,
+    set_part_chants,
+    apply_chant_overrides,
     whole_drawer_zone,
     migrate_drawer_zone_offsets,
     find_element_zone,
@@ -1588,6 +1590,8 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             # Tranche tourillonnée quand le plan touche un montant ou une joue.
             "Usinage": "CF plan" if _wm['side_holes'] else "",
         })
+    # Chants modifiés dans le tableau de débit (sous les livrables).
+    apply_chant_overrides(merged_parts, scene)
     return merged_parts, shelf_dims_cache
 
 
@@ -5358,7 +5362,29 @@ with col2:
                     except:
                         return str(val) if val else ""
                 df_debit[col] = df_debit[col].apply(format_dimension)
-        st.dataframe(df_debit, hide_index=True, use_container_width=True)
+        # Seuls les chants se modifient ici ; le reste découle des caissons.
+        _chant_cols = ["Chant Avant", "Chant Arrière", "Chant Gauche", "Chant Droit"]
+        for col in _chant_cols:
+            df_debit[col] = df_debit[col].map(lambda v: bool(v) if pd.notna(v) else False)
+        _editor_key = f"debit_chants_editor_{st.session_state.get('debit_chants_version', 0)}"
+        _editor_rows = [dict(p) for p in all_calculated_parts]
+
+        def _apply_debit_chants(_key=_editor_key, _rows=_editor_rows):
+            for _row, _changes in (st.session_state.get(_key, {}).get('edited_rows') or {}).items():
+                _part = _rows[int(_row)]
+                _values = {c: bool(_changes.get(c, _part.get(c, False))) for c in _chant_cols}
+                set_part_chants(st.session_state['scene_cabinets'], _part, _values)
+            # Nouveau tableau au prochain affichage, construit sur les valeurs enregistrées.
+            st.session_state['debit_chants_version'] = st.session_state.get('debit_chants_version', 0) + 1
+
+        st.caption("Cochez ou décochez les chants directement dans le tableau : le débit, l'Excel et les "
+                   "feuilles d'usinage suivent (regénérez les livrables).")
+        st.data_editor(
+            df_debit, hide_index=True, use_container_width=True, key=_editor_key,
+            on_change=_apply_debit_chants,
+            disabled=[c for c in df_debit.columns if c not in _chant_cols],
+            column_config={c: st.column_config.CheckboxColumn(c) for c in _chant_cols},
+        )
 
         # --- Métriques globales de la scène ---
         st.markdown("---")

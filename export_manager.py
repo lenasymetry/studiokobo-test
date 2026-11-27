@@ -6,7 +6,7 @@ from machining_logic import calculate_hole_positions
 from machining_logic import drawer_slide_hole_xs, drawer_standard_slide_xs, legrabox_nominal_length
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import fixed_front_machining, UPRIGHT_DEFAULT_CHANTS, stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, door_top_extension, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import sheet_chant_override, fixed_front_machining, UPRIGHT_DEFAULT_CHANTS, stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, door_top_extension, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from project_definitions import get_legrabox_specs, cabinet_feet_active
 
 try:
@@ -1984,6 +1984,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 if title in plan_quantities:
                     proj_for_plan['quantity'] = plan_quantities[title]
                 dxf_expected_titles.append(f"C{cab_idx} · {title}")
+                # Chants modifiés dans le tableau de débit.
+                ch = sheet_chant_override(cab, title, Lp, Wp, ch)
                 _add_plan(title, Lp, Wp, Tp, ch, fh, t_long_h, t_cote_h, cut, has_rebate, proj_for_plan)
         
         # === VALIDATION STRICTE POUR DXF ===
