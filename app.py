@@ -3345,6 +3345,37 @@ with col1:
                                 key=f"joue_drawer_adv_{joue_key}_{idx}",
                             )
                         if enabled:
+                            # Largeur (profondeur) choisie, au lieu de la profondeur automatique.
+                            joue['custom_width_on'] = st.checkbox(
+                                "Choisir la largeur (profondeur) de la joue",
+                                value=bool(joue.get('custom_width_on', False)),
+                                key=f"joue_custom_width_on_{joue_key}_{idx}",
+                            )
+                            if joue['custom_width_on']:
+                                _auto_j = cabinet_joue_dims(
+                                    {**selected_cab, 'joues': {**joues, joue_key: {**joue, 'custom_width_on': False}}},
+                                    joue_key,
+                                )
+                                _auto_w = float(_auto_j['width']) if _auto_j else float(selected_cab['dims']['W_raw'])
+                                _wc1, _wc2 = st.columns(2)
+                                with _wc1:
+                                    joue['width_anchor'] = st.radio(
+                                        "Bord qui reste en place",
+                                        options=['back', 'front'],
+                                        index=1 if joue.get('width_anchor') == 'front' else 0,
+                                        format_func=lambda a: "l'arrière (côté mur)" if a == 'back' else "l'avant",
+                                        key=f"joue_width_anchor_{joue_key}_{idx}",
+                                    )
+                                with _wc2:
+                                    joue['custom_width'] = st.number_input(
+                                        "Largeur de la joue (mm)",
+                                        min_value=1.0,
+                                        value=float(joue.get('custom_width') or _auto_w),
+                                        step=1.0, format="%.1f",
+                                        key=f"joue_custom_w_{joue_key}_{idx}",
+                                    )
+                                st.caption(f"Largeur automatique : {_auto_w:g} mm.")
+                            apply_joue_spans(st.session_state.get('scene_cabinets', []))
                             _joue_fileur = float(selected_cab.get('door_props', {}).get('fileur_width', 0) or 0.0)
                             _joue_geo = cabinet_joue_dims(
                                 selected_cab, joue_key,

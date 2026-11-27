@@ -1822,6 +1822,7 @@ def apply_joue_spans(scene_cabinets):
             if span_up:
                 span_h += float(scene_cabinets[child].get('dims', {}).get('H_raw', 0.0) or 0.0)
             covered = False
+            pj = {}
             if is_upper:
                 pj = (scene_cabinets[parent].get('joues', {}) or {}).get(key, {}) or {}
                 covered = bool(pj.get('enabled') and pj.get('span_up'))
@@ -1835,6 +1836,8 @@ def apply_joue_spans(scene_cabinets):
                 'covered': covered,
                 'on_floor': cabinet_rests_on_floor(scene_cabinets, i),
             }
+            if covered:
+                spans[key]['depth_source'] = _joue_width_settings(pj)
         cab['joue_spans'] = spans
     # Joue entre deux caissons accolés (même étage) : un seul panneau. Il
     # appartient au caisson le plus HAUT (à hauteur égale, celui de gauche) : c'est
@@ -1865,9 +1868,13 @@ def apply_joue_spans(scene_cabinets):
             if owner_is_left is None:
                 continue
             if owner_is_left:
-                cab_j.setdefault('joue_spans', {}).setdefault('gauche', {})['covered'] = True
+                _covered = cab_j.setdefault('joue_spans', {}).setdefault('gauche', {})
+                _owner_joue = (cab_i.get('joues', {}) or {}).get('droite', {}) or {}
             else:
-                cab_i.setdefault('joue_spans', {}).setdefault('droite', {})['covered'] = True
+                _covered = cab_i.setdefault('joue_spans', {}).setdefault('droite', {})
+                _owner_joue = (cab_j.get('joues', {}) or {}).get('gauche', {}) or {}
+            _covered['covered'] = True
+            _covered['depth_source'] = _joue_width_settings(_owner_joue)
     _apply_top_joue_spans(scene_cabinets)
     return scene_cabinets
 
@@ -1965,6 +1972,50 @@ def _apply_joue_custom_height(geo, joue):
     return geo
 
 
+def _custom_joue_width(joue):
+    """Largeur (profondeur) choisie pour une joue, ou 0 pour la largeur automatique."""
+    if not (joue or {}).get('custom_width_on'):
+        return 0.0
+    try:
+        return max(0.0, float(joue.get('custom_width') or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _apply_joue_custom_width(geo, joue):
+    """Largeur choisie d'une joue. Alignée à l'arrière (défaut) : le bord côté
+    mur ne bouge pas, c'est l'avant qui recule ou avance. Alignée à l'avant : le
+    bord avant ne bouge pas."""
+    wanted = _custom_joue_width(joue)
+    if wanted <= 0.0:
+        return geo
+    if joue.get('width_anchor', 'back') != 'front':
+        rear_end = float(geo['width']) - float(geo.get('front_offset', 0.0))
+        geo['front_offset'] = wanted - rear_end
+    geo['width'] = wanted
+    return geo
+
+
+def _joue_width_settings(joue):
+    return {k: joue[k] for k in ('custom_width_on', 'custom_width', 'width_anchor', 'front_advance') if k in joue}
+
+
+def joue_depth_overlap(cabinet, joue_key):
+    """Partie de la profondeur du caisson réellement couverte par la joue de ce
+    côté : (début, fin) en mm depuis l'avant du caisson."""
+    W = float((cabinet.get('dims', {}) or {}).get('W_raw', 0.0) or 0.0)
+    span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
+    # Côté habillé par la joue d'un autre caisson : ce sont ses réglages.
+    source = span.get('depth_source') or (cabinet.get('joues', {}) or {}).get(joue_key, {}) or {}
+    wanted = _custom_joue_width(source)
+    if wanted <= 0.0:
+        return 0.0, W
+    ext = JOUE_DOOR_FRONT_EXTENSION if (span.get('front_door', cabinet_has_front_door(cabinet))
+                                        and source.get('front_advance', True)) else 0.0
+    start = -ext if source.get('width_anchor') == 'front' else W - wanted
+    return max(0.0, start), max(0.0, min(W, start + wanted))
+
+
 def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur_width=0.0):
     """Dimensions d'une joue en tenant compte de la joue commune (caissons
     superposés) et du modèle cache-pieds. None si la joue est masquée par la
@@ -2007,7 +2058,7 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
     ext = JOUE_DOOR_FRONT_EXTENSION if (door_adv or drawer_adv) else 0.0
     geo['width'] = float(geo['width']) + ext
     geo['front_offset'] = ext
-    return geo
+    return _apply_joue_custom_width(geo, joue)
 
 
 # Tranche arrière (contre le mur) d'un montant principal, dans le repère commun
@@ -2114,12 +2165,17 @@ def upright_has_joue(cabinet, upright):
     return bool(joue.get('enabled'))
 
 
-def upright_joue_holes(cabinet):
+def upright_joue_holes(cabinet, joue_key=None):
     """Tourillons de la face extérieure (2/2) d'un montant habillé d'une joue,
     repère de la feuille de montant (x = profondeur, y = hauteur)."""
     dims = cabinet.get('dims', {}) or {}
+    W = float(dims.get('W_raw', 0.0))
+    # Joue plus étroite que le caisson : les 2 lignes sont réparties sur la partie
+    # qu'elle couvre, pour que montant et joue restent en vis-à-vis.
+    start, end = joue_depth_overlap(cabinet, joue_key) if joue_key else (0.0, W)
+    depths = [start + d for d in joue_dowel_depths(end - start)] if end - start >= 40.0 else []
     return [{'type': 'tourillon', 'x': x, 'y': y, 'diam_str': "⌀8"}
-            for x in joue_dowel_depths(float(dims.get('W_raw', 0.0)))
+            for x in depths
             for y in joue_dowel_heights(float(dims.get('H_raw', 0.0)))]
 
 
@@ -2149,7 +2205,7 @@ def joue_assembly_holes(scene_cabinets, cab_index, joue_key, has_feet=False, foo
             covered.append((scene_cabinets[child], float(cab.get('dims', {}).get('H_raw', 0.0))))
     holes = []
     for c, base in covered:
-        for h in upright_joue_holes(c):
+        for h in upright_joue_holes(c, joue_key):
             z = below + base + float(h['y'])
             if not (JOUE_DOWEL_MIN_EDGE <= z <= length - JOUE_DOWEL_MIN_EDGE):
                 continue  # joue raccourcie : ce tourillon tombe hors du panneau

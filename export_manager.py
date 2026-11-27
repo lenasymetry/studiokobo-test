@@ -993,7 +993,10 @@ def _upright_plans(cab, upright, title, W_mont, h_side, t_lr, chants, holes, tra
         return [(title, W_mont, h_side, t_lr, chants, holes, list(tranche_long_holes), tranche_holes, None)]
     outer_chants = dict(chants)
     outer_chants['Chant Gauche'], outer_chants['Chant Droit'] = chants.get('Chant Droit', False), chants.get('Chant Gauche', False)
-    outer_holes = [dict(h, x=float(W_mont) - float(h['x'])) for h in upright_joue_holes(cab)] if has_joue else []
+    # Vue de l'extérieur : montant gauche retourné en profondeur, montant droit non
+    # (sans effet pour des lignes symétriques, nécessaire pour une joue étroite).
+    outer_holes = [dict(h, x=(float(W_mont) - float(h['x'])) if upright == 'mg' else float(h['x']))
+                   for h in upright_joue_holes(cab, 'gauche' if upright == 'mg' else 'droite')] if has_joue else []
     # Tourillons de fixation d'un plan de travail (face extérieure, mêmes positions
     # que sur la tranche du plan) : x = profondeur depuis l'avant. Vue de l'extérieur,
     # le montant gauche regarde vers -x (avant à droite de la feuille), le droit vers +x.
