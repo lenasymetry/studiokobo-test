@@ -102,6 +102,8 @@ from machining_logic import (
     door_top_extension,
     zone_door_entry,
     set_drawer_zone,
+    drawer_zones,
+    whole_drawer_zone,
     migrate_drawer_zone_offsets,
     find_element_zone,
     fixed_front_geometry,
@@ -2818,7 +2820,7 @@ with col1:
                         _placement_done = False
                         _pending_box.warning("Pose en cours : le tiroir est en prévisualisation. Cliquez sur **Valider la position** pour le poser définitivement.")
                         with _pending_box.expander("✅ Valider la position (Tiroir)" if not is_stack_mode else "✅ Valider la position (Tiroirs empilés)"):
-                            all_zones_2d_sel = calculate_all_zones_2d(selected_cab, include_all_elements=False)
+                            all_zones_2d_sel = drawer_zones(selected_cab)
                             zone_options = [None] + [z['id'] for z in all_zones_2d_sel]
                             zone_labels = ["Tout le caisson"] + [f"{z['label']} (X:{z['x_min']:.0f}-{z['x_max']:.0f}mm, Y:{z['y_min']:.0f}-{z['y_max']:.0f}mm)" for z in all_zones_2d_sel]
                             current_zone = p.get('zone_id', None)
@@ -2827,7 +2829,7 @@ with col1:
                                 "Zone d'emplacement",
                                 options=zone_options,
                                 index=zone_index,
-                                format_func=lambda x: zone_labels[zone_options.index(x)] if x in zone_options else "Tout le caisson",
+                                format_func=lambda x, o=zone_options, l=zone_labels: l[o.index(x)] if x in o else "Tout le caisson",
                                 key=f"pending_drawer_zone_{idx}",
                             )
                             
@@ -2861,6 +2863,11 @@ with col1:
                             else:
                                 dims = selected_cab['dims']
                                 max_height_in_zone = dims['H_raw'] - dims['t_tb_raw'] * 2
+                                _whole_free = whole_drawer_zone(selected_cab)
+                                if _whole_free is not None:
+                                    max_height_in_zone = _whole_free['y_max'] - _whole_free['y_min']
+                            if selected_cab.get('fixed_fronts'):
+                                st.caption("Façade fixe : les zones des tiroirs s'arrêtent à son bord.")
                             
                         # Sélection du système (TANDEMBOX, LÉGRABOX ou ANGLAISE)
                         drawer_system = p.get('drawer_system', 'TANDEMBOX')
@@ -2898,7 +2905,7 @@ with col1:
                             # Mode tiroir unique : on garde les champs manuels
                             face_h_default = float(p.get('drawer_face_H_raw', 150.0))
                             face_h_min = 50.0
-                            face_h_max = float(max_height_in_zone)
+                            face_h_max = max(face_h_min, float(max_height_in_zone))
                             face_h_value = max(face_h_min, min(face_h_default, face_h_max))
                             
                             p['drawer_face_H_raw'] = st.number_input(
@@ -2920,6 +2927,12 @@ with col1:
                                 dims = selected_cab['dims']
                                 bottom_offset_min = 0.0
                                 bottom_offset_max = dims['H_raw'] - dims['t_tb_raw'] * 2 - p['drawer_face_H_raw']
+                                _whole_free = whole_drawer_zone(selected_cab)
+                                if _whole_free is not None:
+                                    # Position depuis le bas du caisson, hors de la façade fixe.
+                                    if _whole_free['y_min'] > dims['t_tb_raw'] + 0.5:
+                                        bottom_offset_min = float(_whole_free['y_min'])
+                                    bottom_offset_max = _whole_free['y_max'] - p['drawer_face_H_raw']
                             
                             # La position se saisit depuis le bas de la ZONE ; elle est
                             # enregistrée depuis le bas du caisson (3D, débit, usinage).
@@ -3049,7 +3062,7 @@ with col1:
                             selected_cab.setdefault('drawers', [])
                             _n_drawers_before = len(selected_cab['drawers'])
                             # IMPORTANT : Recalculer les zones au moment de la validation (elles ont pu changer)
-                            all_zones_2d_sel_final = calculate_all_zones_2d(selected_cab, include_all_elements=False)
+                            all_zones_2d_sel_final = drawer_zones(selected_cab)
                             stack_count = int(p.get('stack_count', 1)) if is_stack_mode else 1
                             
                             # Cas 1 : tiroir unique (comportement identique à avant)
@@ -3057,7 +3070,7 @@ with col1:
 
                                 # Stocker les coordonnées de la zone avec le tiroir pour référence future
                                 if p.get('zone_id') is not None:
-                                    all_zones_2d = calculate_all_zones_2d(selected_cab, include_all_elements=True)
+                                    all_zones_2d = drawer_zones(selected_cab)
                                     if p['zone_id'] < len(all_zones_2d):
                                         zone = all_zones_2d[p['zone_id']]
                                         p['stored_zone_coords'] = {
@@ -3080,7 +3093,7 @@ with col1:
                                 else:
                                     p['zone_id'] = None
                                 layout = compute_drawer_stack_layout(
-                                    selected_cab, zone, stack_count,
+                                    selected_cab, zone or whole_drawer_zone(selected_cab), stack_count,
                                     applique=bool(p.get('_applique_mode', False)),
                                 )
                                 for bottom_mm, face_h in layout:
@@ -3123,7 +3136,7 @@ with col1:
                     # Afficher la liste des tiroirs existants
                     if 'drawers' in selected_cab and selected_cab['drawers']:
                         # Calculer toutes les zones 2D disponibles (SANS inclure les éléments sans zone_id)
-                        all_zones_2d_drawers = calculate_all_zones_2d(selected_cab, include_all_elements=False)
+                        all_zones_2d_drawers = drawer_zones(selected_cab)
                         zone_options_drawers = [None] + [z['id'] for z in all_zones_2d_drawers]
                         zone_labels_drawers = ["Tout le caisson"] + [f"{z['label']} (X:{z['x_min']:.0f}-{z['x_max']:.0f}mm, Y:{z['y_min']:.0f}-{z['y_max']:.0f}mm)" for z in all_zones_2d_drawers]
                         for _a, _b in applique_drawer_conflicts(selected_cab, all_zones_2d_drawers):
@@ -3138,6 +3151,15 @@ with col1:
                             zone_index = zone_options_drawers.index(current_zone) if current_zone in zone_options_drawers else 0
                             
                             with st.expander(f"⚙️ Tiroir {i+1}"):
+                                _y0 = float(d.get('drawer_bottom_offset', 0.0))
+                                _y1 = _y0 + float(d.get('drawer_face_H_raw', 150.0))
+                                _dz = find_element_zone(d, calculate_all_zones_2d(selected_cab, include_all_elements=False))
+                                for _fr in selected_cab.get('fixed_fronts') or []:
+                                    _fg = fixed_front_geometry(selected_cab, _fr)
+                                    _same_col = _dz is None or min(_fg['x1'], _dz['x_max']) - max(_fg['x0'], _dz['x_min']) > 20.0
+                                    if _same_col and min(_y1, _fg['y0'] + _fg['height']) - max(_y0, _fg['y0']) > 0.5:
+                                        st.error("Ce tiroir chevauche la façade fixe : baissez-le ou réduisez sa hauteur de façade.")
+
                                 # Sélection de zone
                                 if len(all_zones_2d_drawers) > 1:
                                     st.selectbox(
@@ -4492,13 +4514,13 @@ with col2:
                         # Aperçu de l'assemblage, calculé comme à la validation : réparti
                         # sur la hauteur de la zone choisie, ou de tout le caisson.
                         # Zones calculées SANS inclure les tiroirs
-                        zones_for_preview = calculate_all_zones_2d(cab, include_all_elements=False)
+                        zones_for_preview = drawer_zones(cab)
                         zone_id = p.get('zone_id', None)
                         zone = None
                         if zone_id is not None and 0 <= int(zone_id) < len(zones_for_preview):
                             zone = zones_for_preview[int(zone_id)]
                         layout = compute_drawer_stack_layout(
-                            cab, zone, int(p.get('stack_count', 3)),
+                            cab, zone or whole_drawer_zone(cab), int(p.get('stack_count', 3)),
                             applique=bool(p.get('_applique_mode', False)),
                         )
                         for bottom_mm, face_h in layout:

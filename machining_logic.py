@@ -1350,7 +1350,13 @@ def find_element_zone(element, zones, tol=1.0):
                     and float(zone['y_min']) - tol <= float(coords.get('y_min', zone['y_min']))
                     and float(coords.get('y_max', zone['y_max'])) <= float(zone['y_max']) + tol):
                 return zone
-        # Même colonne, quelle que soit la hauteur.
+        # Même colonne, quelle que soit la hauteur : d'abord l'indice enregistré
+        # (la zone a pu être réduite, par une façade fixe par exemple).
+        own = element.get('zone_id')
+        if own is not None and 0 <= own < len(zones):
+            if (abs(float(zones[own]['x_min']) - float(coords['x_min'])) <= tol
+                    and abs(float(zones[own]['x_max']) - float(coords['x_max'])) <= tol):
+                return zones[own]
         for zone in zones:
             if (abs(float(zone['x_min']) - float(coords['x_min'])) <= tol
                     and abs(float(zone['x_max']) - float(coords['x_max'])) <= tol):
@@ -1757,6 +1763,43 @@ def fixed_front_machining(cabinet):
                     item[kind].append(hole)
         out.append(item)
     return out
+
+
+def clip_zone_by_fixed_fronts(cabinet, zone):
+    """Zone réduite à la place laissée par les façades fixes : un tiroir se pose
+    SOUS (ou au-dessus d') une façade fixe, jamais derrière. S'il reste de la place
+    des deux côtés, on garde la plus grande. L'indice de la zone ne change pas."""
+    segments = [(float(zone['y_min']), float(zone['y_max']))]
+    for front in cabinet.get('fixed_fronts') or []:
+        geo = fixed_front_geometry(cabinet, front)
+        if min(geo['x1'], float(zone['x_max'])) - max(geo['x0'], float(zone['x_min'])) <= 20.0:
+            continue   # façade d'une autre colonne
+        lo, hi = geo['y0'] - 1.0, geo['y0'] + geo['height'] + 1.0
+        segments = [seg for a, b in segments
+                    for seg in ((a, min(b, lo)), (max(a, hi), b)) if seg[1] - seg[0] > 0.5]
+    if not segments:
+        return dict(zone, y_max=float(zone['y_min']))
+    y_min, y_max = max(segments, key=lambda seg: seg[1] - seg[0])
+    return dict(zone, y_min=y_min, y_max=y_max)
+
+
+def drawer_zones(cabinet):
+    """Zones proposées aux tiroirs : celles du caisson, moins les façades fixes."""
+    return [clip_zone_by_fixed_fronts(cabinet, z)
+            for z in calculate_all_zones_2d(cabinet, include_all_elements=False)]
+
+
+def whole_drawer_zone(cabinet):
+    """Choix « Tout le caisson » d'un tiroir quand une façade fixe en prend une
+    partie : l'intérieur restant, sinon None (pas de façade fixe)."""
+    if not cabinet.get('fixed_fronts'):
+        return None
+    dims = cabinet.get('dims', {}) or {}
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    t_tb = float(dims.get('t_tb_raw', 19.0))
+    whole = {'id': None, 'x_min': t_lr, 'x_max': carcass_piece_dims(cabinet)['L_eff'] - t_lr,
+             'y_min': t_tb, 'y_max': float(dims.get('H_raw', 0.0)) - t_tb}
+    return clip_zone_by_fixed_fronts(cabinet, whole)
 
 
 def zone_door_entry(cabinet, zone, door_type='single', opening='right'):
