@@ -2332,6 +2332,20 @@ with col1:
                 st.text_input("Matière du plan " + "+".join(f"C{k}" for k in _members),
                               key=_mat_key, on_change=_set_wt_material,
                               help="Laissée vide : la matière du corps du premier caisson couvert.")
+                # Rallonges du plan, côté par côté.
+                st.caption(f"Rallonger le plan (mm) — dimensions actuelles : {_wt['length']:g} × "
+                           f"{_wt['width'] + (WORKTOP_OVERHANG_MM if st.session_state.get('worktop_overhang') else 0.0):g} mm")
+                _ext_cols = st.columns(2)
+                for _n, (_side, _label) in enumerate((('left', "À gauche"), ('right', "À droite"),
+                                                      ('front', "Devant"), ('back', "Derrière"))):
+                    _ext_key = f"worktop_ext_{_side}_" + "_".join(str(k) for k in _members)
+                    def _set_wt_ext(_key=_ext_key, _idx=_members, _s=_side, _cur=dict(_wt['extension'])):
+                        _new = dict(_cur, **{_s: float(st.session_state.get(_key, 0.0) or 0.0)})
+                        for _k in _idx:
+                            st.session_state['scene_cabinets'][_k]['worktop_ext'] = dict(_new)
+                    st.session_state[_ext_key] = float(_wt['extension'][_side])
+                    _ext_cols[_n % 2].number_input(_label, min_value=0.0, step=10.0, format="%.1f",
+                                                   key=_ext_key, on_change=_set_wt_ext)
 
         # Fixation des caissons superposés : proposée seulement quand la scène
         # comporte réellement un caisson posé sur un autre.

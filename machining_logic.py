@@ -2429,6 +2429,7 @@ def _run_foot_positions(scene_cabinets, origins, members, extra_feet, extra_rows
 # ─────────────────────────────────────────────────────────────────────────────
 WORKTOP_THICKNESS_MM = 19.0
 WORKTOP_OVERHANG_MM = 10.0
+WORKTOP_EXTENSION_SIDES = ('left', 'right', 'front', 'back')
 
 
 def cabinet_front_offset_mm(scene_cabinets, cab_index):
@@ -2521,11 +2522,17 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
         y_face = min(c['y_face'] for c in run)
         y_rear = max(c['y_back'] for c in run)
         extra = WORKTOP_OVERHANG_MM if overhang else 0.0
+        # Rallonges choisies pour ce plan, côté par côté (mm).
+        ext = next((scene_cabinets[c['i']]['worktop_ext'] for c in run
+                    if scene_cabinets[c['i']].get('worktop_ext')), {}) or {}
+        grow = {k: max(0.0, float(ext.get(k, 0.0) or 0.0)) for k in WORKTOP_EXTENSION_SIDES}
         out.append({
             'indices': [c['i'] for c in run],
-            'x0': x0, 'y_front': y_face - extra, 'y_rear': y_rear,
+            'x0': x0 - grow['left'], 'y_front': y_face - extra - grow['front'],
+            'y_rear': y_rear + grow['back'], 'extension': grow,
             'z_top': run[0]['top'],
-            'length': x1 - x0, 'width': (y_rear - y_face) + extra,
+            'length': x1 - x0 + grow['left'] + grow['right'],
+            'width': (y_rear - y_face) + extra + grow['front'] + grow['back'],
             'thickness': WORKTOP_THICKNESS_MM,
             # Matière choisie pour ce plan, sinon celle du corps du premier caisson.
             'material': next(
