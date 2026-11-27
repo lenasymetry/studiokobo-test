@@ -129,6 +129,8 @@ from machining_logic import (
     scene_has_mixed_feet,
     get_worktops,
     worktop_machining,
+    view_offset_y,
+    cabinet_has_foot,
     worktop_lifts,
     worktop_eligible_indices,
     WORKTOP_OVERHANG_MM,
@@ -2350,6 +2352,15 @@ with col1:
                     st.number_input("Longueur (X)", value=dims['L_raw'], key=f"L_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('L_raw'), format="%.1f", step=1.0)
                     st.number_input("Profondeur (Y)", value=dims['W_raw'], key=f"W_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('W_raw'), format="%.1f", step=1.0)
                     st.number_input("Hauteur (Z)", value=dims['H_raw'], key=f"H_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('H_raw'), format="%.1f", step=1.0)
+                    st.markdown("##### Position en profondeur (vue 3D)")
+                    def _set_view_offset(_i=idx):
+                        st.session_state['scene_cabinets'][_i]['view_offset_y'] = float(
+                            st.session_state.get(f"view_offset_y_{_i}", 0.0) or 0.0)
+                    st.number_input("Avancer (+) ou reculer (−) ce caisson (mm)",
+                                    value=float(view_offset_y(selected_cab)), step=10.0, format="%.1f",
+                                    key=f"view_offset_y_{idx}", on_change=_set_view_offset,
+                                    help="Déplace le caisson dans la vue 3D sans toucher à ses pièces ni à ses perçages. "
+                                         "Un plan de travail posé dessus s'adapte (profondeur dans la 3D et le débit).")
                     st.markdown("##### Épaisseurs des Panneaux")
                     st.number_input("Parois latérales (Montants)", value=dims['t_lr_raw'], key=f"t_lr_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_lr_raw'), format="%.1f", step=1.0)
                     st.number_input("Arrière (Fond)", value=dims['t_fb_raw'], key=f"t_fb_raw_{idx}", on_change=lambda: update_selected_cabinet_dim('t_fb_raw'), format="%.1f", step=1.0)
@@ -4214,6 +4225,10 @@ with col2:
         _lifts = foot_lifts_mm(scene, _foot_h_3d)
         abs_origins = [(o[0], o[1], o[2] + lf * unit_factor) for o, lf in zip(abs_origins, _lifts)]
     
+    # Caissons avancés / reculés à la demande (vue 3D) : y < 0 vers l'avant.
+    abs_origins = [(o[0], o[1] - view_offset_y(c) * unit_factor, o[2])
+                   for o, c in zip(abs_origins, scene)]
+    
     BODY_COLOR = "#D6C098"
     ACCESSORY_COLOR = "#B8A078"
     BODY_OPACITY = 1.0
@@ -5044,9 +5059,15 @@ with col2:
 
         if st.session_state.has_feet:
             fh = _foot_h_3d * unit_factor
+            _foot_origins = calculate_origins_recursively(scene, 1.0)
             for fx, fy in foot_positions_mm(scene, st.session_state.get('extra_feet', False),
                                             st.session_state.get('extra_feet_rows', 0),
                                             st.session_state.foot_height):
+                # Le pied suit le caisson sous lequel il est posé.
+                _foot_cab = next((c for k, (c, o) in enumerate(zip(scene, _foot_origins))
+                                  if cabinet_has_foot(scene, k)
+                                  and o[0] - 1.0 <= fx <= o[0] + float(c['dims']['L_raw']) + 1.0), None)
+                fy -= view_offset_y(_foot_cab)
                 fig3d.add_trace(cylinder_mesh_for((fx * unit_factor, fy * unit_factor, 0.0 if _feet_on_floor else -fh), fh, 20.0 * unit_factor,
                                                   color='#333', showlegend=False))
 

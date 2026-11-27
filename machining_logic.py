@@ -2340,6 +2340,18 @@ def cabinet_front_offset_mm(scene_cabinets, cab_index):
     return 0.0
 
 
+def view_offset_y(cabinet):
+    """Avancée (mm, > 0 vers l'avant, < 0 vers l'arrière) choisie pour un caisson.
+
+    Elle ne déplace le caisson que dans la vue 3D : ses pièces et ses perçages ne
+    changent pas. Seul le plan de travail posé dessus en tient compte, puisqu'il
+    doit couvrir le caisson déplacé."""
+    try:
+        return float((cabinet or {}).get('view_offset_y', 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def worktop_eligible_indices(scene_cabinets):
     """Caissons qui peuvent recevoir un plan de travail : rien n'est posé dessus."""
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
@@ -2369,9 +2381,14 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
         if cab.get('worktop') and i in eligible:
             ox, oy, oz = origins[i]
             dims = cab['dims']
+            moved = view_offset_y(cab)
             chosen.append({
                 'i': i, 'x0': ox, 'x1': ox + float(dims['L_raw']),
-                'y_face': oy - cabinet_front_offset_mm(scene_cabinets, i),
+                # Façade à sa place réelle ; l'arrière reste au moins à sa place
+                # d'origine (le mur) : un caisson avancé élargit donc le plan.
+                'y_face': oy - moved - cabinet_front_offset_mm(scene_cabinets, i),
+                'y_back': oy + float(dims['W_raw']) + max(0.0, -moved),
+                # Positions d'origine, pour décider quels caissons partagent un plan.
                 'y_rear': oy + float(dims['W_raw']), 'oy': oy,
                 'top': oz + float(dims['H_raw']) + float(lifts[i] or 0.0),
             })
@@ -2390,7 +2407,7 @@ def get_worktops(scene_cabinets, fuse=True, overhang=False, lifts=None):
         x0 = min(c['x0'] for c in run)
         x1 = max(c['x1'] for c in run)
         y_face = min(c['y_face'] for c in run)
-        y_rear = max(c['y_rear'] for c in run)
+        y_rear = max(c['y_back'] for c in run)
         extra = WORKTOP_OVERHANG_MM if overhang else 0.0
         out.append({
             'indices': [c['i'] for c in run],
@@ -2471,6 +2488,7 @@ def worktop_machining(scene_cabinets, fuse=True, overhang=False, lifts=None,
                 if n in wt['indices']:
                     continue
                 ox, oy, oz = origins[n]
+                oy -= view_offset_y(cab)
                 oz += float(lifts[n] or 0.0)
                 dims = cab['dims']
                 L, W, H = float(dims['L_raw']), float(dims['W_raw']), float(dims['H_raw'])
