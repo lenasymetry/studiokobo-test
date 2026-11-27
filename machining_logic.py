@@ -952,6 +952,45 @@ def calculate_all_zones_2d(cabinet, include_all_elements=True):
 DRAWER_STACK_GAP_MM = 2.0
 
 
+def set_drawer_zone(cabinet, drp, zone_id, zones):
+    """Change la zone d'un tiroir : il suit la nouvelle zone en gardant sa
+    position depuis le bas de celle-ci (hauteur de façade réduite si besoin)."""
+    old = find_element_zone(drp, zones)
+    offset = float(drp.get('drawer_bottom_offset', 0.0) or 0.0)
+    relative = max(0.0, offset - float(old['y_min'])) if old is not None else 0.0
+    new = zones[zone_id] if zone_id is not None and 0 <= zone_id < len(zones) else None
+    drp['zone_id'] = new['id'] if new is not None else None
+    if new is None:
+        drp.pop('stored_zone_coords', None)
+        if old is not None:
+            drp['drawer_bottom_offset'] = relative
+        return
+    drp['stored_zone_coords'] = {k: new[k] for k in ('x_min', 'x_max', 'y_min', 'y_max')}
+    height = float(new['y_max']) - float(new['y_min'])
+    face = min(float(drp.get('drawer_face_H_raw', 150.0) or 150.0), max(10.0, height))
+    drp['drawer_face_H_raw'] = face
+    drp['drawer_bottom_offset'] = float(new['y_min']) + min(relative, max(0.0, height - face))
+
+
+def migrate_drawer_zone_offsets(scene_cabinets):
+    """Répare les tiroirs posés dans une zone haute mais restés en bas : leur
+    position, saisie « depuis le bas de la zone », avait été enregistrée comme
+    comptée depuis le bas du caisson. Seuls les tiroirs entièrement SOUS leur zone
+    sont concernés."""
+    for cab in scene_cabinets:
+        t_tb = float((cab.get('dims', {}) or {}).get('t_tb_raw', 19.0) or 19.0)
+        for drp in cab.get('drawers', []) or []:
+            coords = drp.get('stored_zone_coords') or {}
+            if coords.get('y_min') is None:
+                continue
+            y_min = float(coords['y_min'])
+            offset = float(drp.get('drawer_bottom_offset', 0.0) or 0.0)
+            face = float(drp.get('drawer_face_H_raw', 150.0) or 150.0)
+            if y_min > t_tb + 1.0 and 0.0 <= offset < y_min - 20.0 and offset + face / 2.0 < y_min:
+                drp['drawer_bottom_offset'] = y_min + offset
+    return scene_cabinets
+
+
 def compute_drawer_stack_layout(cabinet, zone, stack_count, applique=False):
     """Hauteur des faces et position basse de chaque tiroir d'un assemblage empilé.
 

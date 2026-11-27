@@ -101,6 +101,9 @@ from machining_logic import (
     get_door_vertical_geometry,
     door_top_extension,
     zone_door_entry,
+    set_drawer_zone,
+    migrate_drawer_zone_offsets,
+    find_element_zone,
     fixed_front_geometry,
     fixed_front_machining,
     cabinet_has_front_door,
@@ -184,6 +187,7 @@ def _apply_scene_spans(scene):
     apply_joue_spans(scene)
     migrate_upright_wall_chants(scene)
     migrate_upright_chants_v3(scene)
+    migrate_drawer_zone_offsets(scene)
     migrate_traverse_wall_chants(scene)
 
 
@@ -2917,10 +2921,19 @@ with col1:
                                 bottom_offset_min = 0.0
                                 bottom_offset_max = dims['H_raw'] - dims['t_tb_raw'] * 2 - p['drawer_face_H_raw']
                             
-                            bottom_offset_default = float(p.get('drawer_bottom_offset', 0.0))
-                            bottom_offset_value = max(bottom_offset_min, min(bottom_offset_default, bottom_offset_max))
+                            # La position se saisit depuis le bas de la ZONE ; elle est
+                            # enregistrée depuis le bas du caisson (3D, débit, usinage).
+                            _zone_sel = (all_zones_2d_sel[p['zone_id']]
+                                         if p.get('zone_id') is not None and p['zone_id'] < len(all_zones_2d_sel) else None)
+                            _zone_base = float(_zone_sel['y_min']) if _zone_sel is not None else 0.0
+                            if _zone_sel is not None:
+                                bottom_offset_default = float(p.get('_offset_in_zone', 0.0))
+                            else:
+                                bottom_offset_default = float(p.get('_offset_in_zone', p.get('drawer_bottom_offset', 0.0)))
+                            bottom_offset_max = max(bottom_offset_min, float(bottom_offset_max))
+                            bottom_offset_value = float(max(bottom_offset_min, min(bottom_offset_default, bottom_offset_max)))
                             
-                            p['drawer_bottom_offset'] = st.number_input(
+                            _offset_in_zone = st.number_input(
                                 "Position Y - Offset depuis le bas de la zone (mm)",
                                 value=bottom_offset_value,
                                 key=f"pending_drawer_bottom_offset_{idx}",
@@ -2930,6 +2943,8 @@ with col1:
                                 max_value=bottom_offset_max,
                                 help="Position verticale du bas du tiroir dans la zone sélectionnée"
                             )
+                            p['_offset_in_zone'] = _offset_in_zone
+                            p['drawer_bottom_offset'] = _zone_base + _offset_in_zone
                         
                         p['drawer_face_thickness'] = st.number_input(
                             "Épaisseur Face (mm)",
@@ -3051,7 +3066,11 @@ with col1:
                                             'y_min': zone['y_min'],
                                             'y_max': zone['y_max']
                                         }
-                                selected_cab['drawers'].append(copy.deepcopy(p))
+                                _new_drawer = copy.deepcopy(p)
+                                _new_drawer.pop('_offset_in_zone', None)
+                                if _new_drawer.get('zone_id') is None:
+                                    _new_drawer.pop('stored_zone_coords', None)
+                                selected_cab['drawers'].append(_new_drawer)
                             else:
                                 # Cas 2 : assemblage empilé, réparti sur la hauteur de la zone
                                 # choisie (ou de tout le caisson si aucune zone).
@@ -3127,7 +3146,11 @@ with col1:
                                         index=zone_index,
                                         format_func=lambda x: zone_labels_drawers[zone_options_drawers.index(x)] if x in zone_options_drawers else "Tout le caisson",
                                         key=f"drawer_zone_{idx}_{i}",
-                                        on_change=lambda x=i: update_drawer_prop(x, 'zone_id')
+                                        on_change=lambda x=i, _c=idx, _z=all_zones_2d_drawers: (
+                                            set_drawer_zone(st.session_state['scene_cabinets'][_c],
+                                                            st.session_state['scene_cabinets'][_c]['drawers'][x],
+                                                            st.session_state.get(f"drawer_zone_{_c}_{x}"), _z),
+                                            st.session_state.pop(f"drawer_face_H_raw_{_c}_{x}", None))
                                     )
                                     
                                     # Si une zone est sélectionnée, afficher les limites de la zone
@@ -3179,11 +3202,18 @@ with col1:
                                     format="%.0f",
                                     step=1.0,
                                 )
+                                _own_zone = find_element_zone(d, all_zones_2d_drawers)
+                                _own_base = float(_own_zone['y_min']) if _own_zone is not None else 0.0
+                                def _set_drawer_offset(x=i, _c=idx, _base=_own_base):
+                                    st.session_state['scene_cabinets'][_c]['drawers'][x]['drawer_bottom_offset'] = (
+                                        _base + float(st.session_state.get(f"drawer_bottom_offset_{_c}_{x}", 0.0)))
+                                st.session_state[f"drawer_bottom_offset_{idx}_{i}"] = (
+                                    float(d.get('drawer_bottom_offset', 0.0)) - _own_base)
                                 st.number_input(
-                                    "Position Y - Offset depuis le bas de la zone (mm)",
-                                    value=d.get('drawer_bottom_offset', 0.0),
+                                    "Position Y - Offset depuis le bas de la zone (mm)" if _own_zone is not None
+                                    else "Position Y - Offset depuis le bas du caisson (mm)",
                                     key=f"drawer_bottom_offset_{idx}_{i}",
-                                    on_change=lambda x=i: update_drawer_prop(x, 'drawer_bottom_offset'),
+                                    on_change=_set_drawer_offset,
                                     format="%.0f",
                                     step=1.0,
                                     help="Position verticale du bas du tiroir dans la zone sélectionnée"
