@@ -2840,6 +2840,20 @@ def view_offset_y(cabinet):
         return 0.0
 
 
+JOUE_UNSET_MATERIAL = 'Matière Corps'   # ancien texte générique : matière non saisie
+
+
+def joue_own_material(joue):
+    """Matière saisie pour une joue, '' si elle ne l'a pas été."""
+    value = str((joue or {}).get('material') or '').strip()
+    return '' if value == JOUE_UNSET_MATERIAL else value
+
+
+def joue_material(cabinet, joue):
+    """Matière d'une joue au débit : la sienne, sinon celle du corps du caisson."""
+    return joue_own_material(joue) or str(cabinet.get('material_body') or JOUE_UNSET_MATERIAL)
+
+
 def back_joue_thickness(cabinet):
     """Épaisseur (mm) de la joue arrière du caisson, 0 s'il n'en a pas : le plan
     de travail la recouvre."""

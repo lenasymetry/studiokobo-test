@@ -104,6 +104,9 @@ from machining_logic import (
     set_drawer_zone,
     drawer_zones,
     joue_right_chain,
+    joue_material,
+    joue_own_material,
+    junction_joue_owner_is_left,
     set_part_chants,
     apply_chant_overrides,
     whole_drawer_zone,
@@ -1027,6 +1030,15 @@ def _bound(widget, label, store, field, current, key, **kwargs):
     return store[field]
 
 
+def _joue_material_input(cabinet, joue, label, key):
+    """Saisie de la matière d'une joue, avec rappel tant qu'elle manque."""
+    _bound(st.text_input, f"Matière de la {label.lower()}", joue, 'material', joue_own_material(joue), key,
+           placeholder="À saisir (ex. : Chêne naturel)")
+    if not joue_own_material(joue):
+        st.warning(f"Indiquez la matière de la {label.lower()}. En attendant, le débit reprend celle du corps : "
+                   f"{joue_material(cabinet, joue)}.")
+
+
 def _back_options(cabinet, joues, joue, idx):
     """Réglages d'une joue arrière : modèle (cache-pieds), hauteur et largeur."""
     _bound(st.selectbox, "Modèle", joue, 'model',
@@ -1327,7 +1339,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             all_parts.append({
                 "Lettre": f"C{i}-J{joue_key[:1].upper()}",
                 "Référence Pièce": _joue_ref,
-                "Matière": str(joue.get('material', 'Matière Corps')),
+                "Matière": joue_material(cabinet, joue),
                 "Caisson": f"C{i}",
                 "Qté": 1,
                 "Longueur (mm)": joue_geo['length'],
@@ -2344,6 +2356,14 @@ with col1:
                 st.toggle(f"Joue entre C{_l} et C{_r}", key=_jk, on_change=_toggle_junction_joue, args=(_l, _r),
                           help="Un panneau est posé dans le joint ; le caisson de droite (et ceux qui le suivent) "
                                "est décalé de l'épaisseur de la joue.")
+                # Matière de cette joue, sur le caisson auquel elle appartient (le plus haut).
+                _owner_left = junction_joue_owner_is_left(_jn_scene, _l, _r)
+                if _owner_left is not None:
+                    _own_i, _own_k = (_l, 'droite') if _owner_left else (_r, 'gauche')
+                    _own_joue = (_jn_scene[_own_i].get('joues') or {}).get(_own_k)
+                    if _own_joue and _own_joue.get('enabled'):
+                        _joue_material_input(_jn_scene[_own_i], _own_joue, f"Joue entre C{_l} et C{_r}",
+                                             f"junction_joue_material_{_l}_{_r}")
 
         st.markdown("---")
         st.markdown('<div class="kb-step">Etape 1D - Options globales</div>', unsafe_allow_html=True)
@@ -3464,6 +3484,8 @@ with col1:
                             key=f"joue_enabled_{joue_key}_{idx}"
                         )
                         joue['enabled'] = enabled
+                        if enabled:
+                            _joue_material_input(selected_cab, joue, joue_label, f"joue_material_{joue_key}_{idx}")
                         # Les cotes ne sont plus saisies : elles sont déduites de la
                         # pièce recouverte. On les affiche en lecture seule pour que
                         # l'utilisateur voie ce qui partira au débit.
@@ -3628,11 +3650,6 @@ with col1:
                                     f" · prolongée de {abs(_joue_geo['z_offset']):.0f} mm pour cacher les pieds"
                                     if _joue_geo['z_offset'] < 0 else ""
                                 )
-                            )
-                            joue['material'] = st.text_input(
-                                "Matière",
-                                value=str(joue.get('material', 'Matière Corps')),
-                                key=f"joue_material_{joue_key}_{idx}"
                             )
 
                 with t_sh:
