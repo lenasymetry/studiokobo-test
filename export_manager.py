@@ -6,7 +6,7 @@ from machining_logic import calculate_hole_positions
 from machining_logic import drawer_slide_hole_xs, drawer_standard_slide_xs, legrabox_nominal_length
 from machining_logic import (get_cabinet_door_height_raw, cabinet_door_is_hidden,
                              get_door_vertical_geometry, get_cache_pied_drop)
-from machining_logic import UPRIGHT_DEFAULT_CHANTS, stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, door_top_extension, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
+from machining_logic import fixed_front_machining, UPRIGHT_DEFAULT_CHANTS, stack_fixing_holes, foot_holes_by_piece, LEGRABOX_SLIDE_MIN_ABOVE_ZONE_MM, LEGRABOX_SLIDE_ABOVE_FACE_BOTTOM_MM, LEGRABOX_FACE_HOLE_RAISE_MM, vertical_shelf_traverse_holes, vertical_shelf_fixed_shelf_holes, vertical_shelf_plans, HINGE_POST_DEPTH_MM, is_hinge_post, hinge_post_traverse_face_holes, shelf_front_setback, shelf_piece_dims, mobile_shelf_rack_holes, mobile_shelf_rack_y_range, upright_has_joue, upright_joue_holes, apply_tranche_hole_depths, back_panel_traverse_holes, back_panel_upright_holes, debit_piece_chants, door_cover_span, door_zone_span, door_sheet_hinge_side, drawer_piece_dims, carcass_piece_dims, apply_face_hole_depths, calculate_back_panel_edge_holes, get_hinge_y_positions, door_top_extension, get_traverse_holes_for_divider, get_traverse_face_holes_for_divider, calculate_all_zones_2d, calculate_zones_from_dividers, get_vertical_divider_tranche_holes
 from project_definitions import get_legrabox_specs, cabinet_feet_active
 
 try:
@@ -1720,6 +1720,11 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 if st.session_state.get('stack_fixing', False) and 0 <= cab_idx < len(_scene_all):
                     th_holes = th_holes + stack_fixing_holes(_scene_all, cab_idx, th_holes, t_lr=t_lr)
                 plans.append(("Traverse Haut (Th)", L_trav, W_trav, t_tb, debit_piece_chants(cab, "Traverse Haut", c_trav), th_holes, tholes_longue, tholes_cote, None))
+            # Façades fixes : tourillons dans la tranche AVANT des montants principaux.
+            for _ff in fixed_front_machining(cab):
+                tranche_holes_mg.extend(_ff['mg'])
+                tranche_holes_md.extend(_ff['md'])
+
             if base_el.get('has_left_upright', True):
                 c_mg = debit_piece_chants(cab, "Montant Gauche", dict(c_mont, **UPRIGHT_DEFAULT_CHANTS))
                 plans.extend(_upright_plans(cab, "mg", "Montant Gauche (Mg)", W_mont, h_side, t_lr, c_mg, holes_mg, tranche_holes_mg, foot_pieces['mg'],
@@ -1913,6 +1918,16 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                 plan_quantities[title_p] = 2 if is_double else 1
                 plans.append((title_p, dW, dH, float(imp_door.get('door_thickness', 19.0)), c_p, holes_p, [], [], None))
 
+            # --- FAÇADES FIXES : leur feuille, et les tourillons dans la tranche avant des montants ---
+            _ff_dividers = {}
+            for _ffk, _ff in enumerate(fixed_front_machining(cab), start=1):
+                plans.append((f"Façade fixe {_ffk} (C{cab_idx})", _ff['width'], _ff['geo']['height'],
+                              _ff['geo']['thickness'],
+                              {"Chant Avant": True, "Chant Arrière": True, "Chant Gauche": True, "Chant Droit": True},
+                              _ff['face_holes'], [], [], None))
+                for _dk, _dh in _ff['dividers'].items():
+                    _ff_dividers.setdefault(_dk, []).extend(_dh)
+
             # --- MONTANTS SECONDAIRES (MÊME LOGIQUE QUE 2.PY) ---
             if 'vertical_dividers' in cab and cab['vertical_dividers']:
                 for div_idx, div in enumerate(cab['vertical_dividers']):
@@ -1937,7 +1952,8 @@ def generate_stacked_html_plans(cabinets_to_process, indices_to_process, output_
                         div_label = f"Montant Secondaire {div_idx+1}"
                     
                     # TOUJOURS générer 2 plans (1/2 et 2/2) pour chaque montant secondaire
-                    plans.append((f"{div_label} (C{cab_idx}) - 1/2", div_w, div_h, div_th, c_div_12, div_holes_left, div_tranche_holes, [], None))
+                    plans.append((f"{div_label} (C{cab_idx}) - 1/2", div_w, div_h, div_th, c_div_12, div_holes_left, div_tranche_holes,
+                                  list(_ff_dividers.get(div_idx, [])), None))
                     plans.append((f"{div_label} (C{cab_idx}) - 2/2", div_w, div_h, div_th, c_div_22, div_holes_right, div_tranche_holes, [], None))
 
             # --- ÉTAGÈRES VERTICALES : tourillons dans les tranches haut/bas ---

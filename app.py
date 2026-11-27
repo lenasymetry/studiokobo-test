@@ -101,6 +101,8 @@ from machining_logic import (
     get_door_vertical_geometry,
     door_top_extension,
     zone_door_entry,
+    fixed_front_geometry,
+    fixed_front_machining,
     cabinet_has_front_door,
     get_hinge_y_positions,
     get_cache_pied_drop,
@@ -1274,6 +1276,21 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
                 "Chant Gauche": chants['Chant Gauche'],
                 "Chant Droit": chants['Chant Droit'],
                 "Usinage": "Rainure LED" if joue_led_grooves(cabinet, joue_key) else "",
+            })
+
+        # Façades fixes (cache-évier…)
+        for _ffk, _ff in enumerate(fixed_front_machining(cabinet), start=1):
+            all_parts.append({
+                "Lettre": f"C{i}-FF{_ffk}",
+                "Référence Pièce": f"Façade fixe {_ffk} (C{i})",
+                "Matière": _ff['front'].get('material', 'Matière Porte'),
+                "Caisson": f"C{i}",
+                "Qté": 1,
+                "Longueur (mm)": _ff['geo']['height'],
+                "Largeur (mm)": _ff['width'],
+                "Epaisseur": _ff['geo']['thickness'],
+                "Chant Avant": True, "Chant Arrière": True, "Chant Gauche": True, "Chant Droit": True,
+                "Usinage": "CF plan" if _ff['face_holes'] else "",
             })
 
         # 2. Porte(s) importee(s) explicites (JSON web)
@@ -2491,6 +2508,53 @@ with col1:
                                 if 0 <= _k < len(_l):
                                     _l.pop(_k)
                             _dc2.button("✖", key=f"zone_door_del_{idx}_{_di}", on_click=_del_zone_door, help="Retirer cette porte")
+
+                    # ── Façade fixe (cache-évier…) ─────────────────────────────
+                    with st.expander("Façade fixe (ex. : cacher un évier)", expanded=bool(selected_cab.get('fixed_fronts'))):
+                        st.caption("Panneau fixe en applique, tourillonné sur la tranche avant des montants "
+                                   "(sans charnière ni vis). Ne la superposez pas à une porte pleine hauteur.")
+                        _ff_cols = door_columns(selected_cab)
+                        if len(_ff_cols) > 1:
+                            st.selectbox("Largeur", options=[None] + list(range(len(_ff_cols))),
+                                         format_func=lambda c, cols=_ff_cols: "Tout le caisson" if c is None else
+                                         f"Colonne {c + 1} ({cols[c]['x_max'] - cols[c]['x_min']:.0f} mm)",
+                                         key=f"ff_col_{idx}")
+                        st.number_input("Hauteur de la façade (mm)", min_value=20.0, value=150.0, step=10.0,
+                                        format="%.1f", key=f"ff_height_{idx}")
+                        st.selectbox("Position", options=['top', 'bottom', 'custom'],
+                                     format_func=lambda a: {'top': 'En haut du caisson', 'bottom': 'En bas du caisson',
+                                                            'custom': 'Hauteur choisie'}[a],
+                                     key=f"ff_anchor_{idx}")
+                        if st.session_state.get(f"ff_anchor_{idx}") == 'custom':
+                            st.number_input("Bas de la façade, depuis le bas du caisson (mm)", min_value=0.0,
+                                            value=0.0, step=10.0, format="%.1f", key=f"ff_bottom_{idx}")
+                        st.text_input("Matière de la façade", value=d_p.get('material', 'Matière Porte'),
+                                      key=f"ff_material_{idx}")
+                        def _add_fixed_front(_i=idx):
+                            _c = st.session_state['scene_cabinets'][_i]
+                            _cols = door_columns(_c)
+                            _ci = st.session_state.get(f"ff_col_{_i}")
+                            _c.setdefault('fixed_fronts', []).append({
+                                'height': float(st.session_state.get(f"ff_height_{_i}", 150.0)),
+                                'anchor': st.session_state.get(f"ff_anchor_{_i}", 'top'),
+                                'bottom': float(st.session_state.get(f"ff_bottom_{_i}", 0.0) or 0.0),
+                                'zone_x': dict(_cols[_ci]) if _ci is not None and 0 <= _ci < len(_cols) else None,
+                                'material': str(st.session_state.get(f"ff_material_{_i}", "") or "").strip() or 'Matière Porte',
+                                'thickness': 19.0, 'gap': 2.0,
+                            })
+                        st.button("➕ Poser la façade fixe", key=f"ff_add_{idx}", on_click=_add_fixed_front,
+                                  use_container_width=True)
+                        for _fi, _f in enumerate(selected_cab.get('fixed_fronts') or []):
+                            _g = fixed_front_geometry(selected_cab, _f)
+                            _fc1, _fc2 = st.columns([4, 1])
+                            _fc1.caption(f"Façade {_fi + 1} : {_g['x1'] - _g['x0']:g} × {_g['height']:g} mm, "
+                                         f"bas à {_g['y0']:g} mm — {_f.get('material', '')}")
+                            def _del_fixed_front(_i=idx, _k=_fi):
+                                _l = st.session_state['scene_cabinets'][_i].get('fixed_fronts') or []
+                                if 0 <= _k < len(_l):
+                                    _l.pop(_k)
+                            _fc2.button("✖", key=f"ff_del_{idx}_{_fi}", on_click=_del_fixed_front,
+                                        help="Retirer cette façade")
 
                     st.markdown("#### Porte (Façade)")
                     st.toggle("Ajouter une porte", value=d_p['has_door'], key=f"has_door_{idx}", on_change=lambda: update_selected_cabinet_door('has_door'))
@@ -5028,6 +5092,17 @@ with col2:
                      o[2] + rail_axis_height(_rz) * unit_factor - _rh / 2.0),
                     color="#FF8C00" if _r_preview else "#9AA0A6", opacity=0.6 if _r_preview else 1.0,
                     name=f"Tringle {i}", showlegend=False))
+
+            for _ff in cab_render.get('fixed_fronts') or []:
+                _g = fixed_front_geometry(cab_render, _ff)
+                if _g['x1'] > _g['x0'] and _g['height'] > 0:
+                    fig3d.add_trace(cuboid_mesh_for(
+                        (_g['x1'] - _g['x0']) * unit_factor, _g['thickness'] * unit_factor,
+                        _g['height'] * unit_factor,
+                        (o[0] + _g['x0'] * unit_factor, o[1] - _g['thickness'] * unit_factor,
+                         o[2] + _g['y0'] * unit_factor),
+                        color=ACCESSORY_COLOR, opacity=ACCESSORY_OPACITY, name=f"Façade fixe {i}",
+                        showlegend=False))
 
             if 'joues' in cab_render and cab_render['joues']:
                 JOUES_COLOR = "#C8A96E"

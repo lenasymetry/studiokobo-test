@@ -1613,6 +1613,113 @@ def drawer_piece_dims(cabinet, drp, zones):
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Façade fixe (cache-évier…) : panneau en applique, tourillonné sur la tranche
+# avant des montants
+# ─────────────────────────────────────────────────────────────────────────────
+FIXED_FRONT_DOWEL_EDGE_MM = 35.0     # 1er / dernier tourillon depuis le bas / le haut de la façade
+FIXED_FRONT_DOWEL_PITCH_MM = 100.0   # entre-axe visé
+
+
+def fixed_front_dowel_positions(height):
+    """Tourillons le long de la hauteur d'une façade fixe (mm depuis son bas)."""
+    height = float(height)
+    span = height - 2.0 * FIXED_FRONT_DOWEL_EDGE_MM
+    if span < 20.0:
+        return [height / 2.0] if height > 0.0 else []
+    n = max(2, int(round(span / FIXED_FRONT_DOWEL_PITCH_MM)) + 1)
+    return [FIXED_FRONT_DOWEL_EDGE_MM + i * span / (n - 1) for i in range(n)]
+
+
+def fixed_front_geometry(cabinet, front):
+    """Emprise d'une façade fixe, repère caisson (mm) : x0, x1, y0 (bas), height,
+    thickness. Pleine largeur, ou une colonne : elle couvre alors EN ENTIER les
+    montants qui la bordent (un tourillon dans l'axe de chacun)."""
+    dims = cabinet.get('dims', {}) or {}
+    L_eff = carcass_piece_dims(cabinet)['L_eff']
+    H = float(dims.get('H_raw', 0.0) or 0.0)
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    gap = float(front.get('gap', 2.0) or 0.0)
+    x0, x1 = 0.0, L_eff
+    zx = front.get('zone_x')
+    if zx:
+        a, b = float(zx['x_min']), float(zx['x_max'])
+        for div in cabinet.get('vertical_dividers') or []:
+            c, th = float(div.get('position_x', 0.0)), float(div.get('thickness', 19.0))
+            if abs(c + th / 2.0 - a) <= 1.0:
+                x0 = c - th / 2.0
+            if abs(c - th / 2.0 - b) <= 1.0:
+                x1 = c + th / 2.0
+        if a <= t_lr + 1.0:
+            x0 = 0.0
+        if b >= L_eff - t_lr - 1.0:
+            x1 = L_eff
+    height = max(0.0, min(float(front.get('height', 150.0) or 0.0), H - 2.0 * gap))
+    anchor = front.get('anchor', 'top')
+    if anchor == 'bottom':
+        y0 = gap
+    elif anchor == 'custom':
+        y0 = max(0.0, min(float(front.get('bottom', 0.0) or 0.0), H - height))
+    else:
+        y0 = H - gap - height
+    return {'x0': x0 + gap, 'x1': x1 - gap, 'y0': y0, 'height': height,
+            'thickness': float(front.get('thickness', 19.0) or 19.0)}
+
+
+def fixed_front_machining(cabinet):
+    """Perçages des façades fixes d'un caisson (tourillons, pas de vis).
+
+    Une liste, une entrée par façade :
+    {'front', 'geo', 'width',
+     'face_holes' : face arrière de la façade (feuille vue de ce côté : x retourné),
+     'mg' / 'md' : tranche AVANT du montant gauche / droit (y = hauteur depuis le bas),
+     'dividers' : {indice: tranche avant du montant secondaire}}
+    """
+    out = []
+    dims = cabinet.get('dims', {}) or {}
+    H = float(dims.get('H_raw', 0.0) or 0.0)
+    t_lr = float(dims.get('t_lr_raw', 19.0))
+    t_tb = float(dims.get('t_tb_raw', 19.0))
+    L_eff = carcass_piece_dims(cabinet)['L_eff']
+    base = cabinet.get('base_elements', {}) or {}
+    for front in cabinet.get('fixed_fronts') or []:
+        geo = fixed_front_geometry(cabinet, front)
+        width = geo['x1'] - geo['x0']
+        item = {'front': front, 'geo': geo, 'width': width, 'face_holes': [],
+                'mg': [], 'md': [], 'dividers': {}}
+        # (clé, indice, axe x, épaisseur, bas, haut, tranche avant de la feuille)
+        panels = []
+        if base.get('has_left_upright', True):
+            panels.append(('mg', None, t_lr / 2.0, t_lr, 0.0, H, 'gauche'))
+        if base.get('has_right_upright', True):
+            panels.append(('md', None, L_eff - t_lr / 2.0, t_lr, 0.0, H, 'droit'))
+        for idx, div in enumerate(cabinet.get('vertical_dividers') or []):
+            if div.get('_preview') or div.get('position_x') is None:
+                continue
+            lo, hi = 0.0, H - 2.0 * t_tb
+            if not div.get('_force_full_height') and div.get('bottom_y') is not None and div.get('top_y') is not None:
+                lo, hi = max(0.0, float(div['bottom_y'])), min(hi, float(div['top_y']))
+            panels.append(('div', idx, float(div['position_x']), float(div.get('thickness', 19.0)),
+                           t_tb + lo, t_tb + hi, 'droit'))
+        for kind, idx, xc, th, p_lo, p_hi, edge in panels:
+            if not geo['x0'] + 4.0 <= xc <= geo['x1'] - 4.0:
+                continue
+            for d in fixed_front_dowel_positions(geo['height']):
+                y_cab = geo['y0'] + d
+                if not p_lo + 6.0 <= y_cab <= p_hi - 6.0:
+                    continue
+                item['face_holes'].append({'type': 'tourillon', 'x': width - (xc - geo['x0']), 'y': d,
+                                           'diam_str': "⌀8"})
+                hole = {'type': 'tourillon', 'x': th / 2.0, 'y': y_cab - p_lo, 'diam_str': "⌀8",
+                        'only_edge': edge}
+                if kind == 'div':
+                    item['dividers'].setdefault(idx, []).append(hole)
+                else:
+                    item[kind].append(hole)
+        out.append(item)
+    return out
+
+
 def zone_door_entry(cabinet, zone, door_type='single', opening='right'):
     """Porte posée sur UNE zone (entre deux montants/étagères) : entrée de
     `imported_doors` (même modèle que les portes d'import web), cotes en mm dans
@@ -1836,7 +1943,8 @@ def cabinet_has_front_door(cabinet):
     """Le caisson a-t-il une porte en façade (propre, importée, de colonne ou
     commune avec le caisson du dessous) ?"""
     dp = cabinet.get('door_props', {}) or {}
-    return bool(dp.get('has_door') or cabinet.get('imported_doors') or cabinet_door_is_hidden(cabinet))
+    return bool(dp.get('has_door') or cabinet.get('imported_doors') or cabinet.get('fixed_fronts')
+                or cabinet_door_is_hidden(cabinet))
 
 
 def apply_joue_spans(scene_cabinets):
@@ -2447,6 +2555,8 @@ def cabinet_front_offset_mm(scene_cabinets, cab_index):
         if parent is not None and 0 <= parent < len(scene_cabinets):
             pdp = scene_cabinets[parent].get('door_props', {}) or {}
             return float(pdp.get('door_thickness', 19.0) or 0.0)
+    if cab.get('fixed_fronts'):
+        return max(float(f.get('thickness', 19.0) or 19.0) for f in cab['fixed_fronts'])
     for dr in cab.get('drawers', []) or []:
         if dr.get('_applique_mode'):
             return float(dr.get('drawer_face_thickness', 19.0) or 0.0)
