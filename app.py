@@ -1014,6 +1014,48 @@ def _legrabox_nl_widgets(cabinet, drp, nl_key, load_key, on_change_nl=None, on_c
     return nl_value, load_value
 
 
+def _back_options(cabinet, joues, joue, idx):
+    """Réglages d'une joue arrière : modèle (cache-pieds), hauteur et largeur."""
+    joue['model'] = st.selectbox(
+        "Modèle", options=['standard', 'floor_length'],
+        index=1 if joue.get('model') == 'floor_length' else 0,
+        format_func=lambda x: 'Standard' if x == 'standard' else 'Cache-pieds',
+        key=f"joue_model_arriere_{idx}",
+        help="Cache-pieds : la joue descend derrière les pieds, comme les portes et joues latérales.",
+    )
+    auto = cabinet_joue_dims(
+        {**cabinet, 'joues': {**joues, 'arriere': {**joue, 'custom_height_on': False, 'custom_width_on': False}}},
+        'arriere', cabinet_feet_active(cabinet, st.session_state.get('has_feet', False)),
+        st.session_state.get('foot_height', 0.0),
+        float(cabinet.get('door_props', {}).get('fileur_width', 0) or 0.0),
+    )
+    if auto is None:
+        return
+    for flag, field, anchor_field, title, label, full, anchors in (
+        ('custom_height_on', 'custom_height', 'height_anchor', "Choisir la hauteur de la joue arrière",
+         "Hauteur (mm)", float(auto['width']), {'bottom': 'le bas', 'top': 'le haut'}),
+        ('custom_width_on', 'custom_width', 'width_anchor', "Choisir la largeur de la joue arrière",
+         "Largeur (mm)", float(auto['length']),
+         {'center': 'le centre', 'left': 'le bord gauche', 'right': 'le bord droit'}),
+    ):
+        joue[flag] = st.checkbox(title, value=bool(joue.get(flag, False)), key=f"joue_back_{flag}_{idx}")
+        if not joue[flag]:
+            continue
+        options = list(anchors)
+        current = joue.get(anchor_field)
+        col_anchor, col_value = st.columns(2)
+        with col_anchor:
+            joue[anchor_field] = st.radio(
+                "Reste en place", options=options,
+                index=options.index(current) if current in options else 0,
+                format_func=lambda a, names=anchors: names[a], key=f"joue_back_{anchor_field}_{idx}")
+        with col_value:
+            joue[field] = st.number_input(
+                label, min_value=1.0, value=float(joue.get(field) or full), step=1.0, format="%.1f",
+                key=f"joue_back_{field}_{idx}")
+        st.caption(f"{label.split(' ')[0]} automatique : {full:g} mm.")
+
+
 def get_automatic_edge_banding(part_name):
     name = part_name.lower()
     if "etagère" in name or "etagere" in name: return True, False, False, False
@@ -1271,7 +1313,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             if _joue_span.get('span_up'):
                 _child = get_cabinet_above_index(scene, i)
                 _joue_ref = f"{joue_label} commune (C{i}+C{_child})"
-            elif joue_key in ('dessus', 'dessous') and _joue_span.get('span_right'):
+            elif joue_key in ('dessus', 'dessous', 'arriere') and _joue_span.get('span_right'):
                 _joue_ref = f"{joue_label} commune (C{i}+C{_joue_span.get('neighbor')})"
             all_parts.append({
                 "Lettre": f"C{i}-J{joue_key[:1].upper()}",
@@ -3401,7 +3443,7 @@ with col1:
                                 "caisson du dessous : réglez-la sur ce caisson."
                             )
                             continue
-                        if joue_key in ('dessus', 'dessous') and _jspan.get('covered'):
+                        if joue_key in ('dessus', 'dessous', 'arriere') and _jspan.get('covered'):
                             st.info(
                                 f"Ce côté est habillé par la {joue_label.lower()} commune du "
                                 "caisson de gauche : réglez-la sur ce caisson."
@@ -3481,8 +3523,8 @@ with col1:
                                 st.caption(f"Hauteur complète : {_full_len:.0f} mm (cache-pieds compris).")
                             else:
                                 joue['custom_height'] = 0.0
-                        if joue_key in ('dessus', 'dessous'):
-                            # Joue de dessus / dessous commune aux deux caissons côte à côte
+                        if joue_key in ('dessus', 'dessous', 'arriere'):
+                            # Joue de dessus / dessous / arrière commune aux deux caissons côte à côte
                             # (pendant de la joue latérale commune des superposés).
                             _right_j = get_top_joue_neighbor_index(_scene_j, idx, key=joue_key) if enabled else None
                             if _right_j is not None:
@@ -3491,7 +3533,7 @@ with col1:
                                     value=bool(joue.get('span_right', False)),
                                     key=f"joue_span_right_{joue_key}_{idx}",
                                 )
-                                if joue['span_right'] and abs(
+                                if joue['span_right'] and joue_key != 'arriere' and abs(
                                     float(_scene_j[_right_j]['dims']['W_raw']) - float(selected_cab['dims']['W_raw'])
                                 ) > 0.5:
                                     st.warning("Les deux caissons n'ont pas la même profondeur : "
@@ -3527,6 +3569,8 @@ with col1:
                                 key=f"joue_fixing_{joue_key}_{idx}",
                                 help="Décochée : aucun trou de tourillon, ni dans la joue ni dans le montant.",
                             )
+                        if enabled and joue_key == 'arriere':
+                            _back_options(selected_cab, joues, joue, idx)
                         if enabled and joue_key != 'arriere':
                             # Largeur (profondeur) choisie, au lieu de la profondeur automatique.
                             joue['custom_width_on'] = st.checkbox(
@@ -5235,7 +5279,7 @@ with col2:
                     elif joue_side == 'back':
                         fig3d.add_trace(cuboid_mesh_for(
                             joue_l, joue_t, joue_w,
-                            (o[0] + joue_x_offset, o[1] + W, o[2]),
+                            (o[0] + joue_x_offset, o[1] + W, o[2] + joue_z_offset),
                             color=joue_color,
                             opacity=joue_opacity,
                             name=f"Joue arrière {i}",

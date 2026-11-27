@@ -1990,6 +1990,8 @@ JOUE_SIDE_KEYS = ('gauche', 'droite')
 # jeu porte/montant.
 JOUE_DOOR_FRONT_EXTENSION = 20.0
 JOUE_TOP_BOTTOM_KEYS = ('dessus', 'dessous')
+# Joues qui peuvent être communes à deux caissons côte à côte.
+JOUE_SPAN_RIGHT_KEYS = ('dessus', 'dessous', 'arriere')
 
 # Bandeau LED sous la joue de dessous : rainure débouchante sur toute la
 # longueur, parallèle au bord arrière (bord arrière, côté mur -> bord de la rainure).
@@ -2142,6 +2144,8 @@ def get_top_joue_neighbor_index(scene_cabinets, cab_index, origins=None, key='de
     cab = scene_cabinets[cab_index]
     d = cab.get('dims', {}) or {}
     x_end = origins[cab_index][0] + float(d.get('L_raw', 0.0) or 0.0)
+    if key == 'arriere':
+        return _back_joue_neighbor(scene_cabinets, cab_index, origins)
     top = origins[cab_index][2] + (float(d.get('H_raw', 0.0) or 0.0) if key == 'dessus' else 0.0)
     for j, other in enumerate(scene_cabinets):
         if j == cab_index:
@@ -2150,6 +2154,24 @@ def get_top_joue_neighbor_index(scene_cabinets, cab_index, origins=None, key='de
         if (abs(origins[j][0] - x_end) <= tol
                 and abs(origins[j][1] - origins[cab_index][1]) <= tol
                 and abs(origins[j][2] + (float(od.get('H_raw', 0.0) or 0.0) if key == 'dessus' else 0.0) - top) <= tol):
+            return j
+    return None
+
+
+def _back_joue_neighbor(scene_cabinets, cab_index, origins):
+    """Caisson accolé à droite dont le dos prolonge celui-ci (même plan arrière,
+    même bas, même hauteur) : une joue arrière peut les couvrir tous les deux."""
+    def box(k):
+        dims = scene_cabinets[k].get('dims', {}) or {}
+        ox, oy, oz = origins[k]
+        return ox, ox + float(dims.get('L_raw', 0.0)), oy + float(dims.get('W_raw', 0.0)), oz, float(dims.get('H_raw', 0.0))
+    _, x_end, rear, bottom, height = box(cab_index)
+    for j in range(len(scene_cabinets)):
+        if j == cab_index:
+            continue
+        x0, _, rear_j, bottom_j, height_j = box(j)
+        if (abs(x0 - x_end) <= TOP_JOUE_JOIN_TOLERANCE and abs(rear_j - rear) <= 1.0
+                and abs(bottom_j - bottom) <= 1.0 and abs(height_j - height) <= 1.0):
             return j
     return None
 
@@ -2164,7 +2186,7 @@ def _apply_top_joue_spans(scene_cabinets):
     """
     origins = calculate_origins_recursively(scene_cabinets, 1.0)
     order = sorted(range(len(scene_cabinets)), key=lambda k: origins[k][0])
-    for key in JOUE_TOP_BOTTOM_KEYS:
+    for key in JOUE_SPAN_RIGHT_KEYS:
         covered = set()
         for i in order:
             cab = scene_cabinets[i]
@@ -2261,6 +2283,41 @@ def joue_depth_overlap(cabinet, joue_key):
     return max(0.0, start), max(0.0, min(W, start + wanted))
 
 
+def _apply_back_joue_options(geo, cabinet, joue, has_feet, foot_height):
+    """Options d'une joue arrière. Repère : `length` = largeur horizontale,
+    `width` = hauteur, `x_offset` / `z_offset` = décalage du coin bas gauche.
+
+    - modèle cache-pieds : elle descend derrière les pieds (caisson au sol) ;
+    - largeur et hauteur choisies, avec le bord (ou le centre) qui reste en place.
+    """
+    on_floor = ((cabinet.get('joue_spans') or {}).get('gauche') or {}).get('on_floor', True)
+    if has_feet and not cabinet.get('no_feet') and joue.get('model') == 'floor_length' and on_floor:
+        drop = cache_pied_drop_mm(foot_height)
+        geo['width'] = float(geo['width']) + drop
+        geo['z_offset'] = float(geo['z_offset']) - drop
+    height = _custom_value(joue, 'custom_height_on', 'custom_height')
+    if height > 0.0:
+        if joue.get('height_anchor', 'bottom') == 'top':
+            geo['z_offset'] = float(geo['z_offset']) + float(geo['width']) - height
+        geo['width'] = height
+    width = _custom_joue_width(joue)
+    if width > 0.0:
+        spare = float(geo['length']) - width
+        anchor = joue.get('width_anchor', 'center')
+        geo['x_offset'] = float(geo['x_offset']) + (spare if anchor == 'right' else spare / 2.0 if anchor == 'center' else 0.0)
+        geo['length'] = width
+    return geo
+
+
+def _custom_value(joue, flag, key):
+    if not (joue or {}).get(flag):
+        return 0.0
+    try:
+        return max(0.0, float(joue.get(key) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur_width=0.0):
     """Dimensions d'une joue en tenant compte de la joue commune (caissons
     superposés) et du modèle cache-pieds. None si la joue est masquée par la
@@ -2280,7 +2337,7 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
         feet = bool(has_feet) and joue.get('model', 'floor_length') == 'floor_length' \
             and span.get('on_floor', True)
         front_door = bool(span.get('front_door', front_door))
-    elif joue_key in JOUE_TOP_BOTTOM_KEYS:
+    elif joue_key in JOUE_SPAN_RIGHT_KEYS:
         span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
         if span.get('covered'):
             return None
@@ -2292,8 +2349,8 @@ def cabinet_joue_dims(cabinet, joue_key, has_feet=False, foot_height=0.0, fileur
             front_door = bool(span.get('front_door', front_door))
     geo = get_joue_dimensions(joue_key, dims, feet, foot_height, fileur_width)
     if joue_key == 'arriere':
-        geo['front_offset'] = 0.0   # derrière le meuble : ni avance ni largeur choisie
-        return geo
+        geo['front_offset'] = 0.0   # derrière le meuble : pas d'avance devant la façade
+        return _apply_back_joue_options(geo, cabinet, joue, has_feet, foot_height)
     if joue_key in JOUE_SIDE_KEYS:
         _apply_joue_custom_height(geo, joue)
     # Meuble à porte : la joue avance de 20 mm pour couvrir la porte.
@@ -2752,7 +2809,8 @@ def view_offset_y(cabinet):
 def back_joue_thickness(cabinet):
     """Épaisseur (mm) de la joue arrière du caisson, 0 s'il n'en a pas : le plan
     de travail la recouvre."""
-    if not (((cabinet.get('joues') or {}).get('arriere') or {}).get('enabled')):
+    covered = ((cabinet.get('joue_spans') or {}).get('arriere') or {}).get('covered')
+    if not (covered or ((cabinet.get('joues') or {}).get('arriere') or {}).get('enabled')):
         return 0.0
     return float((cabinet.get('dims') or {}).get('t_lr_raw', 19.0) or 0.0)
 

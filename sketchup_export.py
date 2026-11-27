@@ -592,7 +592,7 @@ def generate_sketchup_collada(scene_cabinets: List[Dict], door_mode: str = "clos
             elif _jk == "droite":
                 add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + L, _jy, oz + _g["z_offset"], _jt, _jw, _jl)
             elif _jk == "arriere":
-                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], oy + W, oz, _jl, _jt, _jw)
+                add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], oy + W, oz + _g["z_offset"], _jl, _jt, _jw)
             elif _jk == "dessus":
                 add_panel(cab_node, f"{_jlabel} – {cab_label}", ox + _g["x_offset"], _jy, oz + H, _jl, _jw, _jt)
             else:

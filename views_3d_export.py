@@ -981,7 +981,7 @@ def _render_cabinet(ax_img, fig, rect, cab: Dict, origin=(0.0, 0.0, 0.0),
         elif side == "top":
             _add_box(boxes, rox + jx_offset, jy0, roz + H, jl, jw, jt, alpha=0.75, skip=bf_skip)
         elif side == "back":
-            _add_box(boxes, rox + jx_offset, roy + W, roz, jl, jt, jw, alpha=0.75, skip=bf_skip)
+            _add_box(boxes, rox + jx_offset, roy + W, roz + jz_offset, jl, jt, jw, alpha=0.75, skip=bf_skip)
         elif side == "bottom":
             _add_box(boxes, rox + jx_offset, jy0, roz - jt, jl, jw, jt, alpha=0.75, skip=bf_skip)
 
