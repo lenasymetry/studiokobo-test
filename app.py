@@ -3344,6 +3344,13 @@ with col1:
                                 value=bool(joue.get('drawer_front_advance', False)),
                                 key=f"joue_drawer_adv_{joue_key}_{idx}",
                             )
+                        if enabled and joue_key in ('gauche', 'droite'):
+                            joue['fixing'] = st.checkbox(
+                                "Prévoir les usinages de fixation (tourillons entre la joue et le montant)",
+                                value=bool(joue.get('fixing', True)),
+                                key=f"joue_fixing_{joue_key}_{idx}",
+                                help="Décochée : aucun trou de tourillon, ni dans la joue ni dans le montant.",
+                            )
                         if enabled:
                             # Largeur (profondeur) choisie, au lieu de la profondeur automatique.
                             joue['custom_width_on'] = st.checkbox(

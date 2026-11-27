@@ -1997,7 +1997,15 @@ def _apply_joue_custom_width(geo, joue):
 
 
 def _joue_width_settings(joue):
-    return {k: joue[k] for k in ('custom_width_on', 'custom_width', 'width_anchor', 'front_advance') if k in joue}
+    return {k: joue[k] for k in ('custom_width_on', 'custom_width', 'width_anchor', 'front_advance', 'fixing') if k in joue}
+
+
+def joue_fixing_enabled(cabinet, joue_key):
+    """La joue latérale de ce côté demande-t-elle ses usinages de fixation
+    (tourillons joue / montant) ? Oui par défaut."""
+    span = (cabinet.get('joue_spans', {}) or {}).get(joue_key, {}) or {}
+    source = span.get('depth_source') or (cabinet.get('joues', {}) or {}).get(joue_key, {}) or {}
+    return bool(source.get('fixing', True))
 
 
 def joue_depth_overlap(cabinet, joue_key):
@@ -2168,6 +2176,8 @@ def upright_has_joue(cabinet, upright):
 def upright_joue_holes(cabinet, joue_key=None):
     """Tourillons de la face extérieure (2/2) d'un montant habillé d'une joue,
     repère de la feuille de montant (x = profondeur, y = hauteur)."""
+    if joue_key and not joue_fixing_enabled(cabinet, joue_key):
+        return []   # joue posée sans usinage de fixation
     dims = cabinet.get('dims', {}) or {}
     W = float(dims.get('W_raw', 0.0))
     # Joue plus étroite que le caisson : les 2 lignes sont réparties sur la partie
