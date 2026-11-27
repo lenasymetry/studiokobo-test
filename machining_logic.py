@@ -2170,10 +2170,36 @@ def _back_joue_neighbor(scene_cabinets, cab_index, origins):
         if j == cab_index:
             continue
         x0, _, rear_j, bottom_j, height_j = box(j)
-        if (abs(x0 - x_end) <= TOP_JOUE_JOIN_TOLERANCE and abs(rear_j - rear) <= 1.0
+        # Une joue posée entre deux caissons les écarte sans interrompre le dos.
+        if (-TOP_JOUE_JOIN_TOLERANCE <= x0 - x_end <= JOUE_GAP_TOLERANCE and abs(rear_j - rear) <= 1.0
                 and abs(bottom_j - bottom) <= 1.0 and abs(height_j - height) <= 1.0):
             return j
     return None
+
+
+def joue_right_chain(scene_cabinets, cab_index, key, origins=None):
+    """Caissons qui se suivent à droite de `cab_index` et qu'une joue `key`
+    (dessus, dessous ou arrière) pourrait couvrir avec lui, de proche en proche."""
+    if origins is None:
+        origins = calculate_origins_recursively(scene_cabinets, 1.0)
+    chain, current = [], cab_index
+    while True:
+        nxt = get_top_joue_neighbor_index(scene_cabinets, current, origins, key)
+        if nxt is None or nxt == cab_index or nxt in chain:
+            return chain
+        chain.append(nxt)
+        current = nxt
+
+
+def _joue_span_count(joue, key):
+    """Nombre de caissons de droite demandés (1 par défaut ; plusieurs pour la
+    joue arrière)."""
+    if key != 'arriere':
+        return 1
+    try:
+        return max(1, int(joue.get('span_count') or 1))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _apply_top_joue_spans(scene_cabinets):
@@ -2193,20 +2219,28 @@ def _apply_top_joue_spans(scene_cabinets):
             joue = (cab.get('joues', {}) or {}).get(key, {}) or {}
             neighbor = get_top_joue_neighbor_index(scene_cabinets, i, origins, key)
             is_covered = i in covered
-            span_right = bool(joue.get('enabled') and joue.get('span_right')
-                              and neighbor is not None and not is_covered)
-            span = {'covered': is_covered, 'span_right': span_right,
+            chain = []
+            if joue.get('enabled') and joue.get('span_right') and not is_covered:
+                for k in joue_right_chain(scene_cabinets, i, key, origins)[:_joue_span_count(joue, key)]:
+                    if k in covered:
+                        break
+                    chain.append(k)
+            span_right = bool(chain)
+            span = {'members': [i] + chain,
+                    'covered': is_covered, 'span_right': span_right,
                     'neighbor': neighbor, 'front_door': cabinet_has_front_door(cab)}
             if span_right:
-                covered.add(neighbor)
-                nb = scene_cabinets[neighbor]
+                covered.update(chain)
+                last = chain[-1]
+                nb = scene_cabinets[last]
                 # Du début utile de ce caisson (après un fileur à gauche) à la fin
                 # utile du voisin (avant un fileur à droite).
                 start = origins[i][0] + _fileur_sides(cab)[0]
-                end = (origins[neighbor][0] + float(nb.get('dims', {}).get('L_raw', 0.0) or 0.0)
+                end = (origins[last][0] + float(nb.get('dims', {}).get('L_raw', 0.0) or 0.0)
                        - _fileur_sides(nb)[1])
                 span['span_length'] = max(0.0, end - start)
-                span['front_door'] = span['front_door'] or cabinet_has_front_door(nb)
+                span['front_door'] = span['front_door'] or any(
+                    cabinet_has_front_door(scene_cabinets[k]) for k in chain)
             cab.setdefault('joue_spans', {})[key] = span
     return scene_cabinets
 

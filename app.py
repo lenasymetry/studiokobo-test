@@ -103,6 +103,7 @@ from machining_logic import (
     zone_door_entry,
     set_drawer_zone,
     drawer_zones,
+    joue_right_chain,
     set_part_chants,
     apply_chant_overrides,
     whole_drawer_zone,
@@ -1014,15 +1015,25 @@ def _legrabox_nl_widgets(cabinet, drp, nl_key, load_key, on_change_nl=None, on_c
     return nl_value, load_value
 
 
+def _bound(widget, label, store, field, current, key, **kwargs):
+    """Widget lié à `store[field]` : la valeur est enregistrée AVANT le réaffichage
+    (rappel), sinon un second changement d'affilée serait perdu. Retourne la
+    valeur courante."""
+    def _save():
+        store[field] = st.session_state[key]
+    st.session_state[key] = current
+    widget(label, key=key, on_change=_save, **kwargs)
+    store[field] = st.session_state[key]
+    return store[field]
+
+
 def _back_options(cabinet, joues, joue, idx):
     """Réglages d'une joue arrière : modèle (cache-pieds), hauteur et largeur."""
-    joue['model'] = st.selectbox(
-        "Modèle", options=['standard', 'floor_length'],
-        index=1 if joue.get('model') == 'floor_length' else 0,
-        format_func=lambda x: 'Standard' if x == 'standard' else 'Cache-pieds',
-        key=f"joue_model_arriere_{idx}",
-        help="Cache-pieds : la joue descend derrière les pieds, comme les portes et joues latérales.",
-    )
+    _bound(st.selectbox, "Modèle", joue, 'model',
+           'floor_length' if joue.get('model') == 'floor_length' else 'standard', f"joue_model_arriere_{idx}",
+           options=['standard', 'floor_length'],
+           format_func=lambda x: 'Standard' if x == 'standard' else 'Cache-pieds',
+           help="Cache-pieds : la joue descend derrière les pieds, comme les portes et joues latérales.")
     auto = cabinet_joue_dims(
         {**cabinet, 'joues': {**joues, 'arriere': {**joue, 'custom_height_on': False, 'custom_width_on': False}}},
         'arriere', cabinet_feet_active(cabinet, st.session_state.get('has_feet', False)),
@@ -1038,21 +1049,18 @@ def _back_options(cabinet, joues, joue, idx):
          "Largeur (mm)", float(auto['length']),
          {'center': 'le centre', 'left': 'le bord gauche', 'right': 'le bord droit'}),
     ):
-        joue[flag] = st.checkbox(title, value=bool(joue.get(flag, False)), key=f"joue_back_{flag}_{idx}")
-        if not joue[flag]:
+        if not _bound(st.checkbox, title, joue, flag, bool(joue.get(flag, False)), f"joue_back_{flag}_{idx}"):
             continue
         options = list(anchors)
         current = joue.get(anchor_field)
         col_anchor, col_value = st.columns(2)
         with col_anchor:
-            joue[anchor_field] = st.radio(
-                "Reste en place", options=options,
-                index=options.index(current) if current in options else 0,
-                format_func=lambda a, names=anchors: names[a], key=f"joue_back_{anchor_field}_{idx}")
+            _bound(st.radio, "Reste en place", joue, anchor_field,
+                   current if current in options else options[0], f"joue_back_{anchor_field}_{idx}",
+                   options=options, format_func=lambda a, names=anchors: names[a])
         with col_value:
-            joue[field] = st.number_input(
-                label, min_value=1.0, value=float(joue.get(field) or full), step=1.0, format="%.1f",
-                key=f"joue_back_{field}_{idx}")
+            _bound(st.number_input, label, joue, field, float(joue.get(field) or full),
+                   f"joue_back_{field}_{idx}", min_value=1.0, step=1.0, format="%.1f")
         st.caption(f"{label.split(' ')[0]} automatique : {full:g} mm.")
 
 
@@ -1314,7 +1322,8 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
                 _child = get_cabinet_above_index(scene, i)
                 _joue_ref = f"{joue_label} commune (C{i}+C{_child})"
             elif joue_key in ('dessus', 'dessous', 'arriere') and _joue_span.get('span_right'):
-                _joue_ref = f"{joue_label} commune (C{i}+C{_joue_span.get('neighbor')})"
+                _joue_ref = f"{joue_label} commune (" + "+".join(
+                    f"C{k}" for k in (_joue_span.get('members') or [i, _joue_span.get('neighbor')])) + ")"
             all_parts.append({
                 "Lettre": f"C{i}-J{joue_key[:1].upper()}",
                 "Référence Pièce": _joue_ref,
@@ -3527,13 +3536,30 @@ with col1:
                             # Joue de dessus / dessous / arrière commune aux deux caissons côte à côte
                             # (pendant de la joue latérale commune des superposés).
                             _right_j = get_top_joue_neighbor_index(_scene_j, idx, key=joue_key) if enabled else None
-                            if _right_j is not None:
+                            if _right_j is not None and joue_key == 'arriere':
+                                # Une seule joue arrière sur autant de caissons de la rangée que voulu.
+                                _chain = joue_right_chain(_scene_j, idx, 'arriere')
+                                _wanted = int(joue.get('span_count') or 1) if joue.get('span_right') else 0
+                                _span_key = f"joue_span_count_{idx}"
+                                def _save_span(_j=joue, _k=_span_key):
+                                    _j['span_count'] = int(st.session_state[_k])
+                                    _j['span_right'] = _j['span_count'] > 0
+                                st.session_state[_span_key] = min(_wanted, len(_chain))
+                                st.selectbox(
+                                    "Joue arrière commune à plusieurs caissons",
+                                    options=list(range(len(_chain) + 1)),
+                                    format_func=lambda k, c=_chain, me=idx: (
+                                        "Non : ce caisson seul" if k == 0 else
+                                        f"{k + 1} caissons : " + " + ".join(f"C{x}" for x in [me] + c[:k])),
+                                    key=_span_key, on_change=_save_span,
+                                )
+                            elif _right_j is not None:
                                 joue['span_right'] = st.checkbox(
                                     f"{joue_label} commune avec le caisson de droite",
                                     value=bool(joue.get('span_right', False)),
                                     key=f"joue_span_right_{joue_key}_{idx}",
                                 )
-                                if joue['span_right'] and joue_key != 'arriere' and abs(
+                                if joue['span_right'] and abs(
                                     float(_scene_j[_right_j]['dims']['W_raw']) - float(selected_cab['dims']['W_raw'])
                                 ) > 0.5:
                                     st.warning("Les deux caissons n'ont pas la même profondeur : "
@@ -3550,12 +3576,9 @@ with col1:
                                 key=f"joue_led_strip_{joue_key}_{idx}",
                             )
                         if enabled and joue_key != 'arriere' and bool(_jspan.get('front_door', cabinet_has_front_door(selected_cab))):
-                            joue['front_advance'] = st.checkbox(
-                                "Mettre la joue au niveau de la façade (avance de 20 mm devant la porte) ; "
-                                "décochée : profondeur exacte du caisson",
-                                value=bool(joue.get('front_advance', True)),
-                                key=f"joue_front_advance_{joue_key}_{idx}",
-                            )
+                            _bound(st.checkbox, "Mettre la joue au niveau de la façade (avance de 20 mm devant la porte) ; "
+                                   "décochée : profondeur exacte du caisson", joue, 'front_advance',
+                                   bool(joue.get('front_advance', True)), f"joue_front_advance_{joue_key}_{idx}")
                         if enabled and joue_drawer_advance_available(selected_cab, joue_key):
                             joue['drawer_front_advance'] = st.checkbox(
                                 "Avancer de 20 mm devant le tiroir en applique (façade 19 mm + 1 mm de jeu)",
@@ -3563,21 +3586,15 @@ with col1:
                                 key=f"joue_drawer_adv_{joue_key}_{idx}",
                             )
                         if enabled and joue_key in ('gauche', 'droite'):
-                            joue['fixing'] = st.checkbox(
-                                "Prévoir les usinages de fixation (tourillons entre la joue et le montant)",
-                                value=bool(joue.get('fixing', True)),
-                                key=f"joue_fixing_{joue_key}_{idx}",
-                                help="Décochée : aucun trou de tourillon, ni dans la joue ni dans le montant.",
-                            )
+                            _bound(st.checkbox, "Prévoir les usinages de fixation (tourillons entre la joue et le montant)",
+                                   joue, 'fixing', bool(joue.get('fixing', True)), f"joue_fixing_{joue_key}_{idx}",
+                                   help="Décochée : aucun trou de tourillon, ni dans la joue ni dans le montant.")
                         if enabled and joue_key == 'arriere':
                             _back_options(selected_cab, joues, joue, idx)
                         if enabled and joue_key != 'arriere':
                             # Largeur (profondeur) choisie, au lieu de la profondeur automatique.
-                            joue['custom_width_on'] = st.checkbox(
-                                "Choisir la largeur (profondeur) de la joue",
-                                value=bool(joue.get('custom_width_on', False)),
-                                key=f"joue_custom_width_on_{joue_key}_{idx}",
-                            )
+                            _bound(st.checkbox, "Choisir la largeur (profondeur) de la joue", joue, 'custom_width_on',
+                                   bool(joue.get('custom_width_on', False)), f"joue_custom_width_on_{joue_key}_{idx}")
                             if joue['custom_width_on']:
                                 _auto_j = cabinet_joue_dims(
                                     {**selected_cab, 'joues': {**joues, joue_key: {**joue, 'custom_width_on': False}}},
@@ -3586,21 +3603,14 @@ with col1:
                                 _auto_w = float(_auto_j['width']) if _auto_j else float(selected_cab['dims']['W_raw'])
                                 _wc1, _wc2 = st.columns(2)
                                 with _wc1:
-                                    joue['width_anchor'] = st.radio(
-                                        "Bord qui reste en place",
-                                        options=['back', 'front'],
-                                        index=1 if joue.get('width_anchor') == 'front' else 0,
-                                        format_func=lambda a: "l'arrière (côté mur)" if a == 'back' else "l'avant",
-                                        key=f"joue_width_anchor_{joue_key}_{idx}",
-                                    )
+                                    _bound(st.radio, "Bord qui reste en place", joue, 'width_anchor',
+                                           'front' if joue.get('width_anchor') == 'front' else 'back',
+                                           f"joue_width_anchor_{joue_key}_{idx}", options=['back', 'front'],
+                                           format_func=lambda a: "l'arrière (côté mur)" if a == 'back' else "l'avant")
                                 with _wc2:
-                                    joue['custom_width'] = st.number_input(
-                                        "Largeur de la joue (mm)",
-                                        min_value=1.0,
-                                        value=float(joue.get('custom_width') or _auto_w),
-                                        step=1.0, format="%.1f",
-                                        key=f"joue_custom_w_{joue_key}_{idx}",
-                                    )
+                                    _bound(st.number_input, "Largeur de la joue (mm)", joue, 'custom_width',
+                                           float(joue.get('custom_width') or _auto_w),
+                                           f"joue_custom_w_{joue_key}_{idx}", min_value=1.0, step=1.0, format="%.1f")
                                 st.caption(f"Largeur automatique : {_auto_w:g} mm.")
                             apply_joue_spans(st.session_state.get('scene_cabinets', []))
                             _joue_fileur = float(selected_cab.get('door_props', {}).get('fileur_width', 0) or 0.0)
