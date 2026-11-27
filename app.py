@@ -1561,7 +1561,7 @@ def calculate_all_project_parts(scene=None, has_feet=None, foot_height=None):
             # Une tranche tourillonnée est contre un montant / une joue : pas de chant.
             **_wm['chants'],
             # Tranche tourillonnée quand le plan touche un montant ou une joue.
-            "Usinage": "Tourillons tranche" if _wm['side_holes'] else "",
+            "Usinage": "CF plan" if _wm['side_holes'] else "",
         })
     return merged_parts, shelf_dims_cache
 
